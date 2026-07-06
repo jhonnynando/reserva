@@ -7,6 +7,7 @@ import pandas as pd
 
 from database import transaction
 from services.reserva_service import (
+    clear_reserva_caches,
     find_duplicate_cur,
     insert_reserva_cur,
     update_reserva_cur,
@@ -266,5 +267,6 @@ def import_records(
             (imported, updated, ignored, importacao_id),
         )
 
+    clear_reserva_caches()
     return {"importados": imported, "atualizados": updated, "ignorados": ignored}
 

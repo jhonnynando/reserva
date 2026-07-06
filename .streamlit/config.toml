@@ -1,0 +1,9 @@
+[server]
+runOnSave = false
+fileWatcherType = "none"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

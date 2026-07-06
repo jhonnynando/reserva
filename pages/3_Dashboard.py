@@ -36,25 +36,28 @@ def _choice(label: str, options: list[str], key: str) -> str | None:
 
 def _dashboard_filters() -> dict[str, Any]:
     years = available_years()
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        data_inicio = st.date_input("Data inicial", value=None, format="DD/MM/YYYY", key="d_data_inicio")
-    with col2:
-        data_fim = st.date_input("Data final", value=None, format="DD/MM/YYYY", key="d_data_fim")
-    with col3:
-        ano = st.selectbox("Ano", ["Todos"] + years, key="d_ano")
-    with col4:
-        mes = st.selectbox("Mês", MONTHS, format_func=lambda item: item[0], key="d_mes")
+    with st.form("dashboard_filtros_form"):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            data_inicio = st.date_input("Data inicial", value=None, format="DD/MM/YYYY", key="d_data_inicio")
+        with col2:
+            data_fim = st.date_input("Data final", value=None, format="DD/MM/YYYY", key="d_data_fim")
+        with col3:
+            ano = st.selectbox("Ano", ["Todos"] + years, key="d_ano")
+        with col4:
+            mes = st.selectbox("M?s", MONTHS, format_func=lambda item: item[0], key="d_mes")
 
-    col5, col6, col7 = st.columns(3)
-    with col5:
-        cidade = _choice("Cidade", distinct_values("cidade"), "d_cidade")
-    with col6:
-        motorista = _choice("Motorista", distinct_values("motorista"), "d_motorista")
-    with col7:
-        categoria = _choice("Categoria", distinct_values("categoria"), "d_categoria")
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            cidade = _choice("Cidade", distinct_values("cidade"), "d_cidade")
+        with col6:
+            motorista = _choice("Motorista", distinct_values("motorista"), "d_motorista")
+        with col7:
+            categoria = _choice("Categoria", distinct_values("categoria"), "d_categoria")
+        with col8:
+            aplicar = st.form_submit_button("Aplicar filtros", type="primary", width="stretch")
 
-    return {
+    filtros = {
         "data_inicio": data_inicio,
         "data_fim": data_fim,
         "ano": None if ano == "Todos" else ano,
@@ -63,6 +66,9 @@ def _dashboard_filters() -> dict[str, Any]:
         "motorista": motorista,
         "categoria": categoria,
     }
+    if aplicar or "dashboard_filtros_aplicados" not in st.session_state:
+        st.session_state["dashboard_filtros_aplicados"] = filtros
+    return st.session_state["dashboard_filtros_aplicados"]
 
 
 def _prepare_df(records: list[dict[str, Any]]) -> pd.DataFrame:

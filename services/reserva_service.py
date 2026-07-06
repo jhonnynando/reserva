@@ -4,6 +4,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+import streamlit as st
+
 from database import execute, execute_returning, fetch_all, fetch_one, transaction
 from utils.validacao import clean_text
 
@@ -14,6 +16,7 @@ class DuplicateReservationError(RuntimeError):
         self.duplicate = duplicate
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def list_motoristas(active_only: bool = True, search: str = "") -> list[dict[str, Any]]:
     where = ["1=1"]
     params: list[Any] = []
@@ -28,6 +31,7 @@ def list_motoristas(active_only: bool = True, search: str = "") -> list[dict[str
     )
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def list_ajudantes(active_only: bool = True, search: str = "") -> list[dict[str, Any]]:
     where = ["1=1"]
     params: list[Any] = []
@@ -42,6 +46,7 @@ def list_ajudantes(active_only: bool = True, search: str = "") -> list[dict[str,
     )
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def list_cidades(active_only: bool = True, search: str = "") -> list[dict[str, Any]]:
     where = ["1=1"]
     params: list[Any] = []
@@ -61,6 +66,7 @@ def list_cidades(active_only: bool = True, search: str = "") -> list[dict[str, A
     )
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def list_hoteis(
     cidade_id: int | None = None,
     active_only: bool = True,
@@ -174,17 +180,23 @@ def ensure_auxiliares_para_reserva_cur(cur: Any, data: dict[str, Any]) -> None:
 
 def add_motorista(nome: str) -> int:
     with transaction() as cur:
-        return int(upsert_motorista_cur(cur, nome))
+        item_id = int(upsert_motorista_cur(cur, nome))
+    clear_reserva_caches()
+    return item_id
 
 
 def add_ajudante(nome: str) -> int:
     with transaction() as cur:
-        return int(upsert_ajudante_cur(cur, nome))
+        item_id = int(upsert_ajudante_cur(cur, nome))
+    clear_reserva_caches()
+    return item_id
 
 
 def add_cidade(nome: str, estado: str | None = None) -> int:
     with transaction() as cur:
-        return int(upsert_cidade_cur(cur, nome, estado))
+        item_id = int(upsert_cidade_cur(cur, nome, estado))
+    clear_reserva_caches()
+    return item_id
 
 
 def add_hotel(nome: str, cidade_id: int | None, telefone: str = "", observacao: str = "") -> int:
@@ -199,15 +211,19 @@ def add_hotel(nome: str, cidade_id: int | None, telefone: str = "", observacao: 
             """,
             (clean_text(telefone), clean_text(observacao), hotel_id),
         )
-        return int(hotel_id)
+        item_id = int(hotel_id)
+    clear_reserva_caches()
+    return item_id
 
 
 def update_motorista(item_id: int, nome: str, ativo: bool) -> None:
     execute("UPDATE motoristas SET nome = %s, ativo = %s WHERE id = %s", (clean_text(nome), ativo, item_id))
+    clear_reserva_caches()
 
 
 def update_ajudante(item_id: int, nome: str, ativo: bool) -> None:
     execute("UPDATE ajudantes SET nome = %s, ativo = %s WHERE id = %s", (clean_text(nome), ativo, item_id))
+    clear_reserva_caches()
 
 
 def update_cidade(item_id: int, nome: str, estado: str | None, ativo: bool) -> None:
@@ -215,6 +231,7 @@ def update_cidade(item_id: int, nome: str, estado: str | None, ativo: bool) -> N
         "UPDATE cidades SET nome = %s, estado = %s, ativo = %s WHERE id = %s",
         (clean_text(nome), clean_text(estado).upper()[:2] or None, ativo, item_id),
     )
+    clear_reserva_caches()
 
 
 def update_hotel(
@@ -233,6 +250,7 @@ def update_hotel(
         """,
         (clean_text(nome), cidade_id, clean_text(telefone), clean_text(observacao), ativo, item_id),
     )
+    clear_reserva_caches()
 
 
 def find_duplicate_cur(cur: Any, data: dict[str, Any], ignore_id: int | None = None) -> dict[str, Any] | None:
@@ -345,7 +363,9 @@ def create_reserva(data: dict[str, Any], user_id: int | None, allow_duplicate: b
         duplicate = find_duplicate_cur(cur, data)
         if duplicate and not allow_duplicate:
             raise DuplicateReservationError(duplicate)
-        return insert_reserva_cur(cur, data, user_id)
+        reserva_id = insert_reserva_cur(cur, data, user_id)
+    clear_reserva_caches()
+    return reserva_id
 
 
 def update_reserva(reserva_id: int, data: dict[str, Any], allow_duplicate: bool = False) -> None:
@@ -354,10 +374,12 @@ def update_reserva(reserva_id: int, data: dict[str, Any], allow_duplicate: bool 
         if duplicate and not allow_duplicate:
             raise DuplicateReservationError(duplicate)
         update_reserva_cur(cur, reserva_id, data)
+    clear_reserva_caches()
 
 
 def delete_reserva(reserva_id: int) -> None:
     execute("DELETE FROM reservas_hotel WHERE id = %s", (reserva_id,))
+    clear_reserva_caches()
 
 
 def get_reserva(reserva_id: int) -> dict[str, Any] | None:
@@ -415,6 +437,7 @@ def build_filter_sql(filters: dict[str, Any]) -> tuple[str, list[Any]]:
     return " AND ".join(where), params
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def list_reservas(filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     filters = filters or {}
     where_sql, params = build_filter_sql(filters)
@@ -431,6 +454,7 @@ def list_reservas(filters: dict[str, Any] | None = None) -> list[dict[str, Any]]
     )
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def distinct_values(field: str) -> list[str]:
     allowed = {"motorista", "ajudante", "cidade", "hotel_pousada", "tipo", "categoria"}
     if field not in allowed:
@@ -446,6 +470,7 @@ def distinct_values(field: str) -> list[str]:
     return [row["value"] for row in rows]
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def available_years() -> list[int]:
     rows = fetch_all(
         """
@@ -455,4 +480,17 @@ def available_years() -> list[int]:
         """
     )
     return [int(row["ano"]) for row in rows]
+
+
+def clear_reserva_caches() -> None:
+    for cached_function in (
+        list_motoristas,
+        list_ajudantes,
+        list_cidades,
+        list_hoteis,
+        list_reservas,
+        distinct_values,
+        available_years,
+    ):
+        cached_function.clear()
 

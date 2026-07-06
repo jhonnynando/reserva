@@ -64,52 +64,56 @@ def _choice(label: str, options: list[str], key: str) -> str | None:
 
 def _build_filters() -> dict[str, Any]:
     years = available_years()
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        data_inicio = st.date_input("Período inicial", value=None, format="DD/MM/YYYY", key="f_data_inicio")
-    with col2:
-        data_fim = st.date_input("Período final", value=None, format="DD/MM/YYYY", key="f_data_fim")
-    with col3:
-        ano = st.selectbox("Ano", ["Todos"] + years, key="f_ano")
-    with col4:
-        mes = st.selectbox("Mês", MONTHS, format_func=lambda item: item[0], key="f_mes")
-    with col5:
-        dia = st.selectbox("Dia", ["Todos"] + list(range(1, 32)), key="f_dia")
+    with st.form("reservas_filtros_form"):
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            data_inicio = st.date_input("Período inicial", value=None, format="DD/MM/YYYY", key="f_data_inicio")
+        with col2:
+            data_fim = st.date_input("Período final", value=None, format="DD/MM/YYYY", key="f_data_fim")
+        with col3:
+            ano = st.selectbox("Ano", ["Todos"] + years, key="f_ano")
+        with col4:
+            mes = st.selectbox("Mês", MONTHS, format_func=lambda item: item[0], key="f_mes")
+        with col5:
+            dia = st.selectbox("Dia", ["Todos"] + list(range(1, 32)), key="f_dia")
 
-    col5, col6, col7, col8 = st.columns(4)
-    with col5:
-        motorista = _choice("Motorista", distinct_values("motorista"), "f_motorista")
-    with col6:
-        ajudante = _choice("Ajudante", distinct_values("ajudante"), "f_ajudante")
-    with col7:
-        cidade = _choice("Cidade", distinct_values("cidade"), "f_cidade")
-    with col8:
-        hotel = _choice("Hotel/Pousada", distinct_values("hotel_pousada"), "f_hotel")
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            motorista = _choice("Motorista", distinct_values("motorista"), "f_motorista")
+        with col6:
+            ajudante = _choice("Ajudante", distinct_values("ajudante"), "f_ajudante")
+        with col7:
+            cidade = _choice("Cidade", distinct_values("cidade"), "f_cidade")
+        with col8:
+            hotel = _choice("Hotel/Pousada", distinct_values("hotel_pousada"), "f_hotel")
 
-    col9, col10, col11, col12 = st.columns(4)
-    with col9:
-        tipo = _choice("Tipo", distinct_values("tipo"), "f_tipo")
-    with col10:
-        categoria = _choice("Categoria", distinct_values("categoria"), "f_categoria")
-    with col11:
-        nao_planejada_choice = st.selectbox("Não planejada", ["Todas", "Sim", "Não"], key="f_nao_planejada")
-    with col12:
-        busca = st.text_input("Busca geral", key="f_busca")
+        col9, col10, col11, col12 = st.columns(4)
+        with col9:
+            tipo = _choice("Tipo", distinct_values("tipo"), "f_tipo")
+        with col10:
+            categoria = _choice("Categoria", distinct_values("categoria"), "f_categoria")
+        with col11:
+            nao_planejada_choice = st.selectbox("Não planejada", ["Todas", "Sim", "Não"], key="f_nao_planejada")
+        with col12:
+            busca = st.text_input("Busca geral", key="f_busca")
 
-    col13, col14, col15 = st.columns([1, 1, 1])
-    with col13:
-        valor_min = parse_decimal_br(st.text_input("Valor mínimo", key="f_valor_min"))
-    with col14:
-        valor_max = parse_decimal_br(st.text_input("Valor máximo", key="f_valor_max"))
-    with col15:
-        st.write("")
-        st.write("")
-        if st.button("Limpar filtros", width="stretch"):
+        col13, col14, col15, col16 = st.columns([1, 1, 1, 1])
+        with col13:
+            valor_min = parse_decimal_br(st.text_input("Valor mínimo", key="f_valor_min"))
+        with col14:
+            valor_max = parse_decimal_br(st.text_input("Valor máximo", key="f_valor_max"))
+        with col15:
+            aplicar = st.form_submit_button("Aplicar filtros", type="primary", width="stretch")
+        with col16:
+            limpar = st.form_submit_button("Limpar filtros", width="stretch")
+
+        if limpar:
             for key in FILTER_KEYS:
                 st.session_state.pop(key, None)
+            st.session_state.pop("reservas_filtros_aplicados", None)
             st.rerun()
 
-    return {
+    filtros = {
         "data_inicio": data_inicio,
         "data_fim": data_fim,
         "ano": None if ano == "Todos" else ano,
@@ -126,6 +130,9 @@ def _build_filters() -> dict[str, Any]:
         "valor_max": valor_max,
         "busca": clean_text(busca),
     }
+    if aplicar or "reservas_filtros_aplicados" not in st.session_state:
+        st.session_state["reservas_filtros_aplicados"] = filtros
+    return st.session_state["reservas_filtros_aplicados"]
 
 
 def _prepare_df(records: list[dict[str, Any]]) -> pd.DataFrame:
@@ -235,18 +242,62 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
         "Dias": ["dias", "data_reserva"],
         "Categoria": ["categoria", "data_reserva"],
     }
-    col_sort, col_dir, col_size, col_page = st.columns(4)
-    with col_sort:
-        sort_label = st.selectbox("Ordenar por", list(sort_options.keys()), index=0)
-    with col_dir:
-        ascending = st.selectbox("Direção", ["Decrescente", "Crescente"]) == "Crescente"
+    current = st.session_state.get(
+        "reservas_ordem_aplicada",
+        {"sort_label": "Data", "ascending": False, "page_size": 25, "page": 1},
+    )
+    if current["sort_label"] not in sort_options:
+        current["sort_label"] = "Data"
+    if current["page_size"] not in [10, 25, 50, 100]:
+        current["page_size"] = 25
+    with st.form("reservas_ordem_form"):
+        col_sort, col_dir, col_size, col_page, col_apply = st.columns(5)
+        with col_sort:
+            sort_label = st.selectbox(
+                "Ordenar por",
+                list(sort_options.keys()),
+                index=list(sort_options.keys()).index(current["sort_label"]),
+            )
+        with col_dir:
+            direction = st.selectbox(
+                "Direção",
+                ["Decrescente", "Crescente"],
+                index=1 if current["ascending"] else 0,
+            )
+        with col_size:
+            page_size = st.selectbox(
+                "Registros por página",
+                [10, 25, 50, 100],
+                index=[10, 25, 50, 100].index(current["page_size"]),
+            )
+        total_pages_form = max(1, (len(df) + page_size - 1) // page_size)
+        with col_page:
+            page = st.number_input(
+                "Página",
+                min_value=1,
+                max_value=total_pages_form,
+                value=min(int(current["page"]), total_pages_form),
+                step=1,
+            )
+        with col_apply:
+            applied = st.form_submit_button("Atualizar tabela", type="primary", width="stretch")
+
+    if applied:
+        current = {
+            "sort_label": sort_label,
+            "ascending": direction == "Crescente",
+            "page_size": page_size,
+            "page": int(page),
+        }
+        st.session_state["reservas_ordem_aplicada"] = current
+
+    sort_label = current["sort_label"]
+    ascending = current["ascending"]
+    page_size = current["page_size"]
     sorted_df = df.sort_values(sort_options[sort_label], ascending=ascending, na_position="last")
-    with col_size:
-        page_size = st.selectbox("Registros por página", [10, 25, 50, 100], index=1)
     total_pages = max(1, (len(sorted_df) + page_size - 1) // page_size)
-    with col_page:
-        page = st.number_input("Página", min_value=1, max_value=total_pages, value=1, step=1)
-    start = (int(page) - 1) * page_size
+    page = min(int(current["page"]), total_pages)
+    start = (page - 1) * page_size
     return sorted_df.iloc[start : start + page_size]
 
 
@@ -268,27 +319,37 @@ def _edit_reserva(df: pd.DataFrame) -> None:
         )
         reserva = get_reserva(int(reserva_id))
         if not reserva:
-            st.warning("Reserva não encontrada.")
+            st.warning("Reserva n?o encontrada.")
             return
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            data_reserva = st.date_input("Data", value=reserva["data_reserva"], format="DD/MM/YYYY", key="edit_data")
-            motorista = st.text_input("Motorista", value=reserva["motorista"] or "", key="edit_motorista")
-            ajudante = st.text_input("Ajudante", value=reserva["ajudante"] or "", key="edit_ajudante")
-        with col2:
-            cidade = st.text_input("Cidade", value=reserva["cidade"] or "", key="edit_cidade")
-            hotel = st.text_input("Hotel/Pousada", value=reserva["hotel_pousada"] or "", key="edit_hotel")
-            tipo = st.text_input("Tipo", value=reserva["tipo"] or "", key="edit_tipo")
-        with col3:
-            valor = st.text_input("Valor", value=format_currency_br(reserva["valor"]), key="edit_valor")
-            dias = st.number_input("Dias", min_value=1, value=int(reserva["dias"]), step=1, key="edit_dias")
-            nao_planejada = st.checkbox("Não planejada", value=bool(reserva["nao_planejada"]), key="edit_np")
-        categoria = st.text_input("Categoria", value=reserva["categoria"] or "", key="edit_categoria")
-        observacao = st.text_area("Observação", value=reserva["observacao"] or "", height=90, key="edit_obs")
-        allow_duplicate = st.checkbox("Salvar mesmo que exista possível duplicidade", key="edit_allow_dup")
+        with st.form(f"edit_reserva_form_{reserva_id}"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                data_reserva = st.date_input(
+                    "Data", value=reserva["data_reserva"], format="DD/MM/YYYY", key=f"edit_data_{reserva_id}"
+                )
+                motorista = st.text_input("Motorista", value=reserva["motorista"] or "", key=f"edit_motorista_{reserva_id}")
+                ajudante = st.text_input("Ajudante", value=reserva["ajudante"] or "", key=f"edit_ajudante_{reserva_id}")
+            with col2:
+                cidade = st.text_input("Cidade", value=reserva["cidade"] or "", key=f"edit_cidade_{reserva_id}")
+                hotel = st.text_input("Hotel/Pousada", value=reserva["hotel_pousada"] or "", key=f"edit_hotel_{reserva_id}")
+                tipo = st.text_input("Tipo", value=reserva["tipo"] or "", key=f"edit_tipo_{reserva_id}")
+            with col3:
+                valor = st.text_input("Valor", value=format_currency_br(reserva["valor"]), key=f"edit_valor_{reserva_id}")
+                dias = st.number_input("Dias", min_value=1, value=int(reserva["dias"]), step=1, key=f"edit_dias_{reserva_id}")
+                nao_planejada = st.checkbox(
+                    "N?o planejada", value=bool(reserva["nao_planejada"]), key=f"edit_np_{reserva_id}"
+                )
+            categoria = st.text_input("Categoria", value=reserva["categoria"] or "", key=f"edit_categoria_{reserva_id}")
+            observacao = st.text_area(
+                "Observa??o", value=reserva["observacao"] or "", height=90, key=f"edit_obs_{reserva_id}"
+            )
+            allow_duplicate = st.checkbox(
+                "Salvar mesmo que exista poss?vel duplicidade", key=f"edit_allow_dup_{reserva_id}"
+            )
+            submitted = st.form_submit_button("Salvar altera??es", type="primary", width="stretch")
 
-        if st.button("Salvar alterações", type="primary", width="stretch"):
+        if submitted:
             data = {
                 "data_reserva": data_reserva,
                 "motorista": motorista,
@@ -313,11 +374,11 @@ def _edit_reserva(df: pd.DataFrame) -> None:
                 st.rerun()
             except DuplicateReservationError as exc:
                 st.warning(
-                    f"Possível duplicidade com a reserva ID {exc.duplicate['id']}. "
-                    "Marque a confirmação para salvar mesmo assim."
+                    f"Poss?vel duplicidade com a reserva ID {exc.duplicate['id']}. "
+                    "Marque a confirma??o para salvar mesmo assim."
                 )
             except Exception as exc:
-                st.error("Não foi possível atualizar a reserva.")
+                st.error("N?o foi poss?vel atualizar a reserva.")
                 st.exception(exc)
 
 
@@ -332,17 +393,19 @@ def _delete_reserva(df: pd.DataFrame) -> None:
             format_func=lambda item: _reserva_label(df, item),
             key="delete_reserva_id",
         )
-        confirm = st.checkbox("Confirmo que desejo excluir definitivamente esta reserva.", key="delete_confirm")
-        if st.button("Excluir reserva", type="primary", width="stretch"):
+        with st.form(f"delete_reserva_form_{reserva_id}"):
+            confirm = st.checkbox("Confirmo que desejo excluir definitivamente esta reserva.", key=f"delete_confirm_{reserva_id}")
+            submitted = st.form_submit_button("Excluir reserva", type="primary", width="stretch")
+        if submitted:
             if not confirm:
-                st.warning("Confirme a exclusão antes de continuar.")
+                st.warning("Confirme a exclus?o antes de continuar.")
                 return
             try:
                 delete_reserva(int(reserva_id))
-                st.success("Reserva excluída.")
+                st.success("Reserva exclu?da.")
                 st.rerun()
             except Exception as exc:
-                st.error("Não foi possível excluir a reserva.")
+                st.error("N?o foi poss?vel excluir a reserva.")
                 st.exception(exc)
 
 

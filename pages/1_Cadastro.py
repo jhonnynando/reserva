@@ -59,32 +59,32 @@ page_header("Cadastro de reserva", "Escreva os dados da reserva para salvar no s
 version = st.session_state.get("cadastro_form_version", 0)
 prefix = f"form_reserva_{version}"
 
-col1, col2, col3 = st.columns(3)
+with st.form(f"{prefix}_form"):
+    col1, col2, col3 = st.columns(3)
 
-with col1:
-    st.date_input("Data", value=date.today(), key=f"{prefix}_data", format="DD/MM/YYYY")
-    st.text_input("Motorista", placeholder="Escreva o nome do motorista", key=f"{prefix}_motorista")
-    st.text_input("Ajudante", placeholder="Escreva o nome do ajudante, se houver", key=f"{prefix}_ajudante")
+    with col1:
+        st.date_input("Data", value=date.today(), key=f"{prefix}_data", format="DD/MM/YYYY")
+        st.text_input("Motorista", placeholder="Escreva o nome do motorista", key=f"{prefix}_motorista")
+        st.text_input("Ajudante", placeholder="Escreva o nome do ajudante, se houver", key=f"{prefix}_ajudante")
 
-with col2:
-    st.text_input("Cidade", placeholder="Escreva a cidade", key=f"{prefix}_cidade")
-    st.text_input("Hotel/Pousada", placeholder="Escreva o hotel ou pousada", key=f"{prefix}_hotel")
-    st.text_input("Tipo", placeholder="Escreva o tipo", key=f"{prefix}_tipo")
+    with col2:
+        st.text_input("Cidade", placeholder="Escreva a cidade", key=f"{prefix}_cidade")
+        st.text_input("Hotel/Pousada", placeholder="Escreva o hotel ou pousada", key=f"{prefix}_hotel")
+        st.text_input("Tipo", placeholder="Escreva o tipo", key=f"{prefix}_tipo")
 
-with col3:
-    st.number_input("Valor", min_value=0.0, step=10.0, format="%.2f", key=f"{prefix}_valor")
-    valor_atual = parse_decimal_br(st.session_state.get(f"{prefix}_valor"))
-    st.caption(f"Valor informado: {format_currency_br(valor_atual)}")
-    st.number_input("Dias", min_value=1, step=1, value=1, key=f"{prefix}_dias")
-    st.checkbox("Nao planejada", key=f"{prefix}_nao_planejada")
+    with col3:
+        st.number_input("Valor", min_value=0.0, step=10.0, format="%.2f", key=f"{prefix}_valor")
+        valor_atual = parse_decimal_br(st.session_state.get(f"{prefix}_valor"))
+        st.caption(f"Valor informado: {format_currency_br(valor_atual)}")
+        st.number_input("Dias", min_value=1, step=1, value=1, key=f"{prefix}_dias")
+        st.checkbox("Nao planejada", key=f"{prefix}_nao_planejada")
 
-st.text_input("Categoria", placeholder="Escreva a categoria", key=f"{prefix}_categoria")
-st.text_area("Observacao", height=110, key=f"{prefix}_observacao")
+    st.text_input("Categoria", placeholder="Escreva a categoria", key=f"{prefix}_categoria")
+    st.text_area("Observacao", height=110, key=f"{prefix}_observacao")
+    submitted = st.form_submit_button("Salvar reserva", type="primary", width="stretch")
 
-reserva_data = _build_reserva_payload(prefix)
-
-if st.button("Salvar reserva", type="primary", width="stretch"):
-    _save_reserva(reserva_data)
+if submitted:
+    _save_reserva(_build_reserva_payload(prefix))
 
 pending = st.session_state.get("reserva_pendente")
 if pending:
