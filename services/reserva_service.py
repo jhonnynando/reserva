@@ -382,6 +382,17 @@ def delete_reserva(reserva_id: int) -> None:
     clear_reserva_caches()
 
 
+def delete_reservas(reserva_ids: list[int]) -> int:
+    ids = sorted({int(reserva_id) for reserva_id in reserva_ids if reserva_id})
+    if not ids:
+        return 0
+    with transaction() as cur:
+        cur.execute("DELETE FROM reservas_hotel WHERE id = ANY(%s::int[])", (ids,))
+        deleted = cur.rowcount
+    clear_reserva_caches()
+    return int(deleted)
+
+
 def get_reserva(reserva_id: int) -> dict[str, Any] | None:
     return fetch_one("SELECT * FROM reservas_hotel WHERE id = %s", (reserva_id,))
 

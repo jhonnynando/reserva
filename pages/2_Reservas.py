@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from services.reserva_service import (
     DuplicateReservationError,
     available_years,
-    delete_reserva,
+    delete_reservas,
     distinct_values,
     get_reserva,
     list_reservas,
@@ -222,6 +222,7 @@ def _editable_table(df: pd.DataFrame) -> pd.DataFrame:
         return df
     output = pd.DataFrame(
         {
+            "Excluir": False,
             "ID": df["id"].astype(int),
             "Data": df["data_reserva"].dt.date,
             "Motorista": df["motorista"].fillna(""),
@@ -519,7 +520,7 @@ def _cell_signature(value: Any) -> str:
 def _changed_rows(original: pd.DataFrame, edited: pd.DataFrame) -> list[tuple[int, dict[str, Any]]]:
     original_by_id = original.set_index("ID")
     changed: list[tuple[int, dict[str, Any]]] = []
-    editable_columns = [col for col in edited.columns if col != "ID"]
+    editable_columns = [col for col in edited.columns if col not in {"Excluir", "ID"}]
 
     for _, edited_row in edited.iterrows():
         reserva_id = int(edited_row["ID"])
@@ -543,6 +544,7 @@ def _render_editable_table(page_df: pd.DataFrame) -> None:
             num_rows="fixed",
             disabled=["ID"],
             column_config={
+                "Excluir": st.column_config.CheckboxColumn("Excluir", help="Marque para excluir esta reserva."),
                 "ID": st.column_config.NumberColumn("ID", disabled=True),
                 "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
                 "Valor": st.column_config.NumberColumn("Valor", min_value=0.01, step=1.0, format="R$ %.2f", required=True),
@@ -551,7 +553,25 @@ def _render_editable_table(page_df: pd.DataFrame) -> None:
                 "Observacao": st.column_config.TextColumn("Observacao", width="medium"),
             },
         )
-        salvar = st.form_submit_button("Salvar alterações da tabela", type="primary", width="stretch")
+        col_save, col_delete = st.columns([2, 1])
+        with col_save:
+            salvar = st.form_submit_button("Salvar alteracoes da tabela", type="primary", width="stretch")
+        with col_delete:
+            excluir = st.form_submit_button("Excluir selecionadas", width="stretch")
+
+    selected_ids = edited.loc[edited["Excluir"].astype(bool), "ID"].astype(int).tolist()
+    if excluir:
+        if not selected_ids:
+            st.warning("Marque uma ou mais reservas na coluna Excluir.")
+            return
+        try:
+            deleted = delete_reservas(selected_ids)
+            st.success(f"{deleted} reserva(s) excluida(s).")
+            st.rerun()
+        except Exception as exc:
+            st.error("Nao foi possivel excluir as reservas selecionadas.")
+            st.exception(exc)
+        return
 
     if not salvar:
         return
@@ -665,33 +685,6 @@ def _edit_reserva(df: pd.DataFrame) -> None:
                 st.exception(exc)
 
 
-def _delete_reserva(df: pd.DataFrame) -> None:
-    if df.empty:
-        return
-    with st.expander("Excluir reserva"):
-        ids = df["id"].astype(int).tolist()
-        reserva_id = st.selectbox(
-            "Selecione a reserva para excluir",
-            ids,
-            format_func=lambda item: _reserva_label(df, item),
-            key="delete_reserva_id",
-        )
-        with st.form(f"delete_reserva_form_{reserva_id}"):
-            confirm = st.checkbox("Confirmo que desejo excluir definitivamente esta reserva.", key=f"delete_confirm_{reserva_id}")
-            submitted = st.form_submit_button("Excluir reserva", type="primary", width="stretch")
-        if submitted:
-            if not confirm:
-                st.warning("Confirme a exclusao antes de continuar.")
-                return
-            try:
-                delete_reserva(int(reserva_id))
-                st.success("Reserva excluida.")
-                st.rerun()
-            except Exception as exc:
-                st.error("Nao foi possivel excluir a reserva.")
-                st.exception(exc)
-
-
 setup_page("Reservas")
 bootstrap_database()
 render_sidebar(None)
@@ -707,5 +700,4 @@ else:
     _export_buttons(df)
     page_df = _sort_and_paginate(df)
     _render_editable_table(page_df)
-    _delete_reserva(df)
 
