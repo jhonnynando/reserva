@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from datetime import date
 from io import BytesIO
 from pathlib import Path
@@ -269,8 +270,13 @@ def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
 
+def _png_text(value: Any) -> str:
+    text = str(value or "")
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+
+
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
-    text = str(text or "")
+    text = _png_text(text)
     if draw.textlength(text, font=font) <= max_width:
         return text
     ellipsis = "..."
@@ -317,8 +323,8 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
 
     draw.rounded_rectangle((margin, 26, width - margin, 168), radius=18, fill=dark_blue)
     draw.rectangle((margin, 142, width - margin, 168), fill=green)
-    draw.text((margin + 34, 48), "Reservas de Hotéis", fill="#FFFFFF", font=title_font)
-    draw.text((margin + 36, 108), f"Relatório gerado em {hoje}", fill=muted, font=subtitle_font)
+    draw.text((margin + 34, 48), "Reservas de Hoteis", fill="#FFFFFF", font=title_font)
+    draw.text((margin + 36, 108), f"Relatorio gerado em {hoje}", fill=muted, font=subtitle_font)
 
     card_w = 260
     card_h = 92
@@ -330,8 +336,8 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
         (card_2_x, "Reservas", str(quantidade)),
     ):
         draw.rounded_rectangle((x, 50, x + card_w, 50 + card_h), radius=14, fill="#FFFFFF")
-        draw.text((x + 20, 66), label.upper(), fill="#64748B", font=label_font)
-        draw.text((x + 20, 94), value, fill=green if label == "Valor total" else blue, font=value_font)
+        draw.text((x + 20, 66), _png_text(label.upper()), fill="#64748B", font=label_font)
+        draw.text((x + 20, 94), _png_text(value), fill=green if label == "Valor total" else blue, font=value_font)
 
     y = header_h
     columns = [
@@ -346,7 +352,7 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     draw.rounded_rectangle((margin, y - 10, width - margin, y + table_header_h - 10), radius=12, fill=blue)
     draw.rectangle((margin, y + 20, width - margin, y + table_header_h - 10), fill=blue)
     for label, x, _w in columns:
-        draw.text((x, y + 7), label, fill="#FFFFFF", font=head_font)
+        draw.text((x, y + 7), _png_text(label), fill="#FFFFFF", font=head_font)
 
     y += table_header_h
     for index, row in visible_df.iterrows():
@@ -369,7 +375,7 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     if quantidade > PNG_MAX_ROWS:
         msg = f"Mostrando as primeiras {PNG_MAX_ROWS} reservas de {quantidade}. Use filtros para gerar uma imagem mais especifica."
         draw.rounded_rectangle((margin, y + 16, width - margin, y + 56), radius=8, fill="#FEF3C7")
-        draw.text((margin + 18, y + 25), msg, fill="#92400E", font=small_font)
+        draw.text((margin + 18, y + 25), _png_text(msg), fill="#92400E", font=small_font)
 
     draw.line((margin, height - 20, width - margin, height - 20), fill="#CBD5E1", width=1)
 
