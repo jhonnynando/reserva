@@ -136,7 +136,6 @@ pages/
   2_Reservas.py
   3_Dashboard.py
   4_Importar_Excel.py
-  5_Cadastros_Auxiliares.py
 services/
   reserva_service.py
   importacao_service.py
