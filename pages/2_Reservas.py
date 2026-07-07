@@ -248,6 +248,10 @@ def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     candidates = [
         "arialbd.ttf" if bold else "arial.ttf",
         "segoeuib.ttf" if bold else "segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
+        if bold
+        else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
     ]
     for candidate in candidates:
         try:
@@ -278,54 +282,68 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     quantidade = len(df)
     hoje = date.today().strftime("%d/%m/%Y")
 
-    width = 1500
-    row_h = 34
-    header_h = 185
-    footer_h = 52 if quantidade > PNG_MAX_ROWS else 24
-    height = header_h + 42 + (len(visible_df) * row_h) + footer_h
+    width = 1600
+    margin = 44
+    row_h = 50
+    header_h = 245
+    table_header_h = 54
+    footer_h = 72 if quantidade > PNG_MAX_ROWS else 34
+    height = header_h + table_header_h + (len(visible_df) * row_h) + footer_h
 
     img = Image.new("RGB", (width, height), "#F5F7FA")
     draw = ImageDraw.Draw(img)
-    title_font = _font(34, bold=True)
-    subtitle_font = _font(19)
+    title_font = _font(42, bold=True)
+    subtitle_font = _font(22)
     label_font = _font(18, bold=True)
-    value_font = _font(28, bold=True)
-    head_font = _font(16, bold=True)
-    row_font = _font(15)
-    small_font = _font(14)
+    value_font = _font(34, bold=True)
+    head_font = _font(20, bold=True)
+    row_font = _font(19)
+    small_font = _font(17)
 
     blue = "#145DA0"
     dark = "#0B3558"
     green = "#16A34A"
     border = "#DDE5EE"
     text = "#111827"
+    muted = "#64748B"
 
-    draw.rounded_rectangle((28, 24, width - 28, 154), radius=10, fill="#FFFFFF", outline=border)
-    draw.text((52, 42), "Reservas de hoteis", fill=dark, font=title_font)
-    draw.text((52, 88), f"Relatorio gerado em {hoje}", fill="#64748B", font=subtitle_font)
-    draw.text((width - 430, 46), "Valor total", fill="#64748B", font=label_font)
-    draw.text((width - 430, 78), format_currency_br(total), fill=green, font=value_font)
-    draw.text((width - 230, 46), "Reservas", fill="#64748B", font=label_font)
-    draw.text((width - 230, 78), str(quantidade), fill=blue, font=value_font)
+    draw.rounded_rectangle((margin, 34, width - margin, 190), radius=16, fill="#FFFFFF", outline=border, width=2)
+    draw.rectangle((margin, 34, margin + 12, 190), fill=green)
+    draw.text((margin + 36, 58), "Reservas de hoteis", fill=dark, font=title_font)
+    draw.text((margin + 38, 118), f"Relatorio gerado em {hoje}", fill=muted, font=subtitle_font)
+
+    card_w = 230
+    card_gap = 22
+    card_1_x = width - margin - (card_w * 2) - card_gap
+    card_2_x = width - margin - card_w
+    for x, label, value, color in (
+        (card_1_x, "Valor total", format_currency_br(total), green),
+        (card_2_x, "Reservas", str(quantidade), blue),
+    ):
+        draw.rounded_rectangle((x, 60, x + card_w, 164), radius=12, fill="#F8FAFC", outline=border, width=1)
+        draw.text((x + 22, 78), label.upper(), fill=muted, font=label_font)
+        draw.text((x + 22, 110), value, fill=color, font=value_font)
 
     y = header_h
     columns = [
-        ("Data", 52, 110),
-        ("Motorista", 170, 245),
-        ("Cidade", 425, 210),
-        ("Hotel/Pousada", 645, 390),
-        ("Tipo", 1045, 135),
-        ("Valor", 1190, 145),
-        ("Dias", 1345, 70),
+        ("Data", 58, 128),
+        ("Motorista", 208, 250),
+        ("Cidade", 480, 210),
+        ("Hotel/Pousada", 720, 370),
+        ("Tipo", 1118, 150),
+        ("Valor", 1302, 150),
+        ("Dias", 1478, 70),
     ]
-    draw.rounded_rectangle((28, y - 8, width - 28, y + 34), radius=6, fill=blue)
+    draw.rounded_rectangle((margin, y - 10, width - margin, y + table_header_h - 10), radius=10, fill=blue)
+    draw.rectangle((margin, y + 16, width - margin, y + table_header_h - 10), fill=blue)
     for label, x, _w in columns:
-        draw.text((x, y + 2), label, fill="#FFFFFF", font=head_font)
+        draw.text((x, y + 5), label, fill="#FFFFFF", font=head_font)
 
-    y += 42
+    y += table_header_h
     for index, row in visible_df.iterrows():
         fill = "#FFFFFF" if index % 2 == 0 else "#EEF4FA"
-        draw.rectangle((28, y - 3, width - 28, y + row_h - 3), fill=fill)
+        draw.rectangle((margin, y - 2, width - margin, y + row_h - 2), fill=fill)
+        draw.line((margin, y + row_h - 2, width - margin, y + row_h - 2), fill=border, width=1)
         values = [
             row["data_reserva"].strftime("%d/%m/%Y"),
             row.get("motorista", ""),
@@ -336,12 +354,15 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
             str(row.get("dias", "")),
         ]
         for value, (_label, x, col_w) in zip(values, columns):
-            draw.text((x, y + 5), _fit_text(draw, value, row_font, col_w), fill=text, font=row_font)
+            draw.text((x, y + 13), _fit_text(draw, value, row_font, col_w), fill=text, font=row_font)
         y += row_h
 
     if quantidade > PNG_MAX_ROWS:
         msg = f"Mostrando as primeiras {PNG_MAX_ROWS} reservas de {quantidade}. Use filtros para gerar uma imagem mais especifica."
-        draw.text((52, y + 12), msg, fill="#92400E", font=small_font)
+        draw.rounded_rectangle((margin, y + 16, width - margin, y + 56), radius=8, fill="#FEF3C7")
+        draw.text((margin + 18, y + 25), msg, fill="#92400E", font=small_font)
+
+    draw.line((margin, height - 20, width - margin, height - 20), fill="#CBD5E1", width=1)
 
     buffer = BytesIO()
     img.save(buffer, format="PNG", optimize=True)
