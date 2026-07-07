@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -245,7 +246,11 @@ def _to_excel_bytes(df: pd.DataFrame) -> bytes:
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
+    windows_fonts = Path("C:/Windows/Fonts")
     candidates = [
+        windows_fonts / ("arialbd.ttf" if bold else "arial.ttf"),
+        windows_fonts / ("segoeuib.ttf" if bold else "segoeui.ttf"),
+        windows_fonts / ("calibrib.ttf" if bold else "calibri.ttf"),
         "arialbd.ttf" if bold else "arial.ttf",
         "segoeuib.ttf" if bold else "segoeui.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -255,10 +260,13 @@ def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     ]
     for candidate in candidates:
         try:
-            return ImageFont.truetype(candidate, size)
+            return ImageFont.truetype(str(candidate), size)
         except OSError:
             continue
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
@@ -282,62 +290,63 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     quantidade = len(df)
     hoje = date.today().strftime("%d/%m/%Y")
 
-    width = 1600
-    margin = 44
-    row_h = 50
-    header_h = 245
-    table_header_h = 54
-    footer_h = 72 if quantidade > PNG_MAX_ROWS else 34
+    width = 1280
+    margin = 34
+    row_h = 56
+    header_h = 206
+    table_header_h = 58
+    footer_h = 74 if quantidade > PNG_MAX_ROWS else 34
     height = header_h + table_header_h + (len(visible_df) * row_h) + footer_h
 
-    img = Image.new("RGB", (width, height), "#F5F7FA")
+    img = Image.new("RGB", (width, height), "#F3F7FB")
     draw = ImageDraw.Draw(img)
-    title_font = _font(42, bold=True)
+    title_font = _font(46, bold=True)
     subtitle_font = _font(22)
     label_font = _font(18, bold=True)
-    value_font = _font(34, bold=True)
-    head_font = _font(20, bold=True)
-    row_font = _font(19)
-    small_font = _font(17)
+    value_font = _font(36, bold=True)
+    head_font = _font(21, bold=True)
+    row_font = _font(21)
+    small_font = _font(18)
 
     blue = "#145DA0"
-    dark = "#0B3558"
+    dark_blue = "#0B3F6F"
     green = "#16A34A"
     border = "#DDE5EE"
     text = "#111827"
-    muted = "#64748B"
+    muted = "#D7E7F5"
 
-    draw.rounded_rectangle((margin, 34, width - margin, 190), radius=16, fill="#FFFFFF", outline=border, width=2)
-    draw.rectangle((margin, 34, margin + 12, 190), fill=green)
-    draw.text((margin + 36, 58), "Reservas de hoteis", fill=dark, font=title_font)
-    draw.text((margin + 38, 118), f"Relatorio gerado em {hoje}", fill=muted, font=subtitle_font)
+    draw.rounded_rectangle((margin, 26, width - margin, 168), radius=18, fill=dark_blue)
+    draw.rectangle((margin, 142, width - margin, 168), fill=green)
+    draw.text((margin + 34, 48), "Reservas de Hotéis", fill="#FFFFFF", font=title_font)
+    draw.text((margin + 36, 108), f"Relatório gerado em {hoje}", fill=muted, font=subtitle_font)
 
-    card_w = 230
-    card_gap = 22
+    card_w = 260
+    card_h = 92
+    card_gap = 16
     card_1_x = width - margin - (card_w * 2) - card_gap
     card_2_x = width - margin - card_w
-    for x, label, value, color in (
-        (card_1_x, "Valor total", format_currency_br(total), green),
-        (card_2_x, "Reservas", str(quantidade), blue),
+    for x, label, value in (
+        (card_1_x, "Valor total", format_currency_br(total)),
+        (card_2_x, "Reservas", str(quantidade)),
     ):
-        draw.rounded_rectangle((x, 60, x + card_w, 164), radius=12, fill="#F8FAFC", outline=border, width=1)
-        draw.text((x + 22, 78), label.upper(), fill=muted, font=label_font)
-        draw.text((x + 22, 110), value, fill=color, font=value_font)
+        draw.rounded_rectangle((x, 50, x + card_w, 50 + card_h), radius=14, fill="#FFFFFF")
+        draw.text((x + 20, 66), label.upper(), fill="#64748B", font=label_font)
+        draw.text((x + 20, 94), value, fill=green if label == "Valor total" else blue, font=value_font)
 
     y = header_h
     columns = [
-        ("Data", 58, 128),
-        ("Motorista", 208, 250),
-        ("Cidade", 480, 210),
-        ("Hotel/Pousada", 720, 370),
-        ("Tipo", 1118, 150),
-        ("Valor", 1302, 150),
-        ("Dias", 1478, 70),
+        ("Data", 52, 130),
+        ("Motorista", 188, 230),
+        ("Cidade", 434, 166),
+        ("Hotel/Pousada", 620, 285),
+        ("Tipo", 920, 118),
+        ("Valor", 1052, 135),
+        ("Dias", 1194, 52),
     ]
-    draw.rounded_rectangle((margin, y - 10, width - margin, y + table_header_h - 10), radius=10, fill=blue)
-    draw.rectangle((margin, y + 16, width - margin, y + table_header_h - 10), fill=blue)
+    draw.rounded_rectangle((margin, y - 10, width - margin, y + table_header_h - 10), radius=12, fill=blue)
+    draw.rectangle((margin, y + 20, width - margin, y + table_header_h - 10), fill=blue)
     for label, x, _w in columns:
-        draw.text((x, y + 5), label, fill="#FFFFFF", font=head_font)
+        draw.text((x, y + 7), label, fill="#FFFFFF", font=head_font)
 
     y += table_header_h
     for index, row in visible_df.iterrows():
@@ -354,7 +363,7 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
             str(row.get("dias", "")),
         ]
         for value, (_label, x, col_w) in zip(values, columns):
-            draw.text((x, y + 13), _fit_text(draw, value, row_font, col_w), fill=text, font=row_font)
+            draw.text((x, y + 15), _fit_text(draw, value, row_font, col_w), fill=text, font=row_font)
         y += row_h
 
     if quantidade > PNG_MAX_ROWS:
