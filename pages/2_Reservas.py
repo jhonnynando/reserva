@@ -297,7 +297,7 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     quantidade = len(df)
     hoje = date.today().strftime("%d/%m/%Y")
 
-    width = 1280
+    width = 1500
     margin = 34
     row_h = 56
     header_h = 206
@@ -343,12 +343,13 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     y = header_h
     columns = [
         ("Data", 52, 130),
-        ("Motorista", 188, 230),
-        ("Cidade", 434, 166),
-        ("Hotel/Pousada", 620, 285),
-        ("Tipo", 920, 118),
-        ("Valor", 1052, 135),
-        ("Dias", 1194, 52),
+        ("Motorista", 188, 220),
+        ("Ajudante", 422, 220),
+        ("Cidade", 656, 178),
+        ("Hotel/Pousada", 850, 276),
+        ("Tipo", 1140, 110),
+        ("Valor", 1268, 136),
+        ("Dias", 1420, 52),
     ]
     draw.rounded_rectangle((margin, y - 10, width - margin, y + table_header_h - 10), radius=12, fill=blue)
     draw.rectangle((margin, y + 20, width - margin, y + table_header_h - 10), fill=blue)
@@ -363,6 +364,7 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
         values = [
             row["data_reserva"].strftime("%d/%m/%Y"),
             row.get("motorista", ""),
+            row.get("ajudante", ""),
             row.get("cidade", ""),
             row.get("hotel_pousada", ""),
             row.get("tipo", ""),
