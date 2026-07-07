@@ -19,7 +19,7 @@ from services.reserva_service import (
 )
 from utils.formatacao import format_currency_br, format_date_br, parse_decimal_br
 from utils.ui import bootstrap_database, metric_card, page_header, render_sidebar, setup_page
-from utils.validacao import clean_text, validate_reserva
+from utils.validacao import clean_text, parse_date_br, parse_int_positive, validate_reserva
 
 
 PNG_MAX_ROWS = 120
@@ -68,6 +68,19 @@ def _choice(label: str, options: list[str], key: str) -> str | None:
 
 def _build_filters() -> dict[str, Any]:
     years = available_years()
+    precisa_padrao_hoje = st.session_state.get("reservas_filtros_padrao_hoje_v1") is not True
+    if (
+        precisa_padrao_hoje
+        or st.session_state.pop("reservas_resetar_para_hoje", False)
+        or "reservas_filtros_inicializados" not in st.session_state
+    ):
+        hoje = date.today()
+        st.session_state["f_data_inicio"] = hoje
+        st.session_state["f_data_fim"] = hoje
+        st.session_state.pop("reservas_filtros_aplicados", None)
+        st.session_state["reservas_filtros_inicializados"] = True
+        st.session_state["reservas_filtros_padrao_hoje_v1"] = True
+
     with st.form("reservas_filtros_form"):
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
@@ -115,6 +128,7 @@ def _build_filters() -> dict[str, Any]:
             for key in FILTER_KEYS:
                 st.session_state.pop(key, None)
             st.session_state.pop("reservas_filtros_aplicados", None)
+            st.session_state["reservas_resetar_para_hoje"] = True
             st.rerun()
 
     filtros = {
@@ -196,6 +210,28 @@ def _format_table(df: pd.DataFrame) -> pd.DataFrame:
             "Não planejada": df["nao_planejada"].map({True: "Sim", False: "Não"}),
             "Categoria": df["categoria"],
             "Observação": df["observacao"],
+        }
+    )
+    return output
+
+
+def _editable_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    output = pd.DataFrame(
+        {
+            "ID": df["id"].astype(int),
+            "Data": df["data_reserva"].dt.date,
+            "Motorista": df["motorista"].fillna(""),
+            "Ajudante": df["ajudante"].fillna(""),
+            "Cidade": df["cidade"].fillna(""),
+            "Hotel/Pousada": df["hotel_pousada"].fillna(""),
+            "Tipo": df["tipo"].fillna(""),
+            "Valor": pd.to_numeric(df["valor"], errors="coerce").fillna(0).astype(float),
+            "Dias": pd.to_numeric(df["dias"], errors="coerce").fillna(1).astype(int),
+            "Nao planejada": df["nao_planejada"].fillna(False).astype(bool),
+            "Categoria": df["categoria"].fillna(""),
+            "Observacao": df["observacao"].fillna(""),
         }
     )
     return output
@@ -419,6 +455,99 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
     return sorted_df.iloc[start : start + page_size]
 
 
+def _row_to_reserva_data(row: pd.Series) -> dict[str, Any]:
+    dias = parse_int_positive(row.get("Dias")) or 0
+    return {
+        "data_reserva": parse_date_br(row.get("Data")),
+        "motorista": row.get("Motorista", ""),
+        "ajudante": row.get("Ajudante", ""),
+        "cidade": row.get("Cidade", ""),
+        "hotel_pousada": row.get("Hotel/Pousada", ""),
+        "tipo": row.get("Tipo", ""),
+        "valor": parse_decimal_br(row.get("Valor")),
+        "dias": dias,
+        "nao_planejada": bool(row.get("Nao planejada")),
+        "categoria": row.get("Categoria", ""),
+        "observacao": row.get("Observacao", ""),
+    }
+
+
+def _cell_signature(value: Any) -> str:
+    if pd.isna(value):
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value).strip()
+
+
+def _changed_rows(original: pd.DataFrame, edited: pd.DataFrame) -> list[tuple[int, dict[str, Any]]]:
+    original_by_id = original.set_index("ID")
+    changed: list[tuple[int, dict[str, Any]]] = []
+    editable_columns = [col for col in edited.columns if col != "ID"]
+
+    for _, edited_row in edited.iterrows():
+        reserva_id = int(edited_row["ID"])
+        if reserva_id not in original_by_id.index:
+            continue
+        original_row = original_by_id.loc[reserva_id]
+        has_change = any(_cell_signature(edited_row[col]) != _cell_signature(original_row[col]) for col in editable_columns)
+        if has_change:
+            changed.append((reserva_id, _row_to_reserva_data(edited_row)))
+    return changed
+
+
+def _render_editable_table(page_df: pd.DataFrame) -> None:
+    original = _editable_table(page_df)
+    with st.form("reservas_editor_form"):
+        edited = st.data_editor(
+            original,
+            key="reservas_editor",
+            hide_index=True,
+            width="stretch",
+            num_rows="fixed",
+            disabled=["ID"],
+            column_config={
+                "ID": st.column_config.NumberColumn("ID", disabled=True),
+                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
+                "Valor": st.column_config.NumberColumn("Valor", min_value=0.01, step=1.0, format="R$ %.2f", required=True),
+                "Dias": st.column_config.NumberColumn("Dias", min_value=1, step=1, required=True),
+                "Nao planejada": st.column_config.CheckboxColumn("Nao planejada"),
+                "Observacao": st.column_config.TextColumn("Observacao", width="medium"),
+            },
+        )
+        salvar = st.form_submit_button("Salvar alterações da tabela", type="primary", width="stretch")
+
+    if not salvar:
+        return
+
+    changes = _changed_rows(original, edited)
+    if not changes:
+        st.info("Nenhuma alteração encontrada.")
+        return
+
+    errors: list[str] = []
+    saved = 0
+    for reserva_id, data in changes:
+        validation_errors = validate_reserva(data)
+        if validation_errors:
+            errors.append(f"ID {reserva_id}: {' '.join(validation_errors)}")
+            continue
+        try:
+            update_reserva(reserva_id, data, allow_duplicate=False)
+            saved += 1
+        except DuplicateReservationError as exc:
+            errors.append(f"ID {reserva_id}: possível duplicidade com a reserva ID {exc.duplicate['id']}.")
+        except Exception as exc:
+            errors.append(f"ID {reserva_id}: nao foi possivel salvar ({exc}).")
+
+    if saved:
+        st.success(f"{saved} reserva(s) atualizada(s).")
+    for error in errors:
+        st.warning(error)
+    if saved and not errors:
+        st.rerun()
+
+
 def _reserva_label(df: pd.DataFrame, reserva_id: int) -> str:
     row = df.loc[df["id"] == reserva_id].iloc[0]
     return f"#{reserva_id} - {format_date_br(row['data_reserva'])} - {row['motorista']} - {format_currency_br(row['valor'])}"
@@ -541,7 +670,6 @@ if df.empty:
 else:
     _export_buttons(df)
     page_df = _sort_and_paginate(df)
-    st.dataframe(_format_table(page_df), width="stretch", hide_index=True)
-    _edit_reserva(df)
+    _render_editable_table(page_df)
     _delete_reserva(df)
 
