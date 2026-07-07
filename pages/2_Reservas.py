@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from services.reserva_service import (
     DuplicateReservationError,
     available_years,
-    delete_reservas,
+    delete_reserva,
     distinct_values,
     get_reserva,
     list_reservas,
@@ -565,7 +565,9 @@ def _render_editable_table(page_df: pd.DataFrame) -> None:
             st.warning("Marque uma ou mais reservas na coluna Excluir.")
             return
         try:
-            deleted = delete_reservas(selected_ids)
+            for reserva_id in selected_ids:
+                delete_reserva(reserva_id)
+            deleted = len(selected_ids)
             st.success(f"{deleted} reserva(s) excluida(s).")
             st.rerun()
         except Exception as exc:
