@@ -324,8 +324,8 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
 
     draw.rounded_rectangle((margin, 26, width - margin, 168), radius=18, fill=dark_blue)
     draw.rectangle((margin, 142, width - margin, 168), fill=green)
-    draw.text((margin + 34, 48), "Reservas de Hoteis", fill="#FFFFFF", font=title_font)
-    draw.text((margin + 36, 108), f"Relatorio gerado em {hoje}", fill=muted, font=subtitle_font)
+    draw.text((margin + 34, 48), "Reservas de Hotéis", fill="#FFFFFF", font=title_font)
+    draw.text((margin + 36, 108), f"Relatório gerado em {hoje}", fill=muted, font=subtitle_font)
 
     card_w = 260
     card_h = 92
