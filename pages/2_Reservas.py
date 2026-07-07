@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from PIL import Image, ImageDraw, ImageFont
 
 from services.reserva_service import (
     DuplicateReservationError,
@@ -19,6 +20,9 @@ from services.reserva_service import (
 from utils.formatacao import format_currency_br, format_date_br, parse_decimal_br
 from utils.ui import bootstrap_database, metric_card, page_header, render_sidebar, setup_page
 from utils.validacao import clean_text, validate_reserva
+
+
+PNG_MAX_ROWS = 120
 
 
 MONTHS = [
@@ -143,6 +147,7 @@ def _prepare_df(records: list[dict[str, Any]]) -> pd.DataFrame:
     df["ano"] = df["data_reserva"].dt.year
     df["mes"] = df["data_reserva"].dt.month
     df["dia"] = df["data_reserva"].dt.day
+    df["hoje_primeiro"] = (df["data_reserva"].dt.date == date.today()).astype(int)
     df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
     df["dias"] = pd.to_numeric(df["dias"], errors="coerce").fillna(0).astype(int)
     return df
@@ -203,9 +208,113 @@ def _to_excel_bytes(df: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 
+def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
+    candidates = [
+        "arialbd.ttf" if bold else "arial.ttf",
+        "segoeuib.ttf" if bold else "segoeui.ttf",
+    ]
+    for candidate in candidates:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
+    text = str(text or "")
+    if draw.textlength(text, font=font) <= max_width:
+        return text
+    ellipsis = "..."
+    while text and draw.textlength(text + ellipsis, font=font) > max_width:
+        text = text[:-1]
+    return text + ellipsis if text else ellipsis
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _to_png_bytes(df: pd.DataFrame) -> bytes:
+    if "hoje_primeiro" in df.columns:
+        report_df = df.sort_values(["hoje_primeiro", "data_reserva"], ascending=[False, False])
+    else:
+        report_df = df.sort_values("data_reserva", ascending=False)
+    visible_df = report_df.head(PNG_MAX_ROWS).copy()
+    total = float(df["valor"].sum()) if not df.empty else 0
+    quantidade = len(df)
+    hoje = date.today().strftime("%d/%m/%Y")
+
+    width = 1500
+    row_h = 34
+    header_h = 185
+    footer_h = 52 if quantidade > PNG_MAX_ROWS else 24
+    height = header_h + 42 + (len(visible_df) * row_h) + footer_h
+
+    img = Image.new("RGB", (width, height), "#F5F7FA")
+    draw = ImageDraw.Draw(img)
+    title_font = _font(34, bold=True)
+    subtitle_font = _font(19)
+    label_font = _font(18, bold=True)
+    value_font = _font(28, bold=True)
+    head_font = _font(16, bold=True)
+    row_font = _font(15)
+    small_font = _font(14)
+
+    blue = "#145DA0"
+    dark = "#0B3558"
+    green = "#16A34A"
+    border = "#DDE5EE"
+    text = "#111827"
+
+    draw.rounded_rectangle((28, 24, width - 28, 154), radius=10, fill="#FFFFFF", outline=border)
+    draw.text((52, 42), "Reservas de hoteis", fill=dark, font=title_font)
+    draw.text((52, 88), f"Relatorio gerado em {hoje}", fill="#64748B", font=subtitle_font)
+    draw.text((width - 430, 46), "Valor total", fill="#64748B", font=label_font)
+    draw.text((width - 430, 78), format_currency_br(total), fill=green, font=value_font)
+    draw.text((width - 230, 46), "Reservas", fill="#64748B", font=label_font)
+    draw.text((width - 230, 78), str(quantidade), fill=blue, font=value_font)
+
+    y = header_h
+    columns = [
+        ("Data", 52, 110),
+        ("Motorista", 170, 245),
+        ("Cidade", 425, 210),
+        ("Hotel/Pousada", 645, 390),
+        ("Tipo", 1045, 135),
+        ("Valor", 1190, 145),
+        ("Dias", 1345, 70),
+    ]
+    draw.rounded_rectangle((28, y - 8, width - 28, y + 34), radius=6, fill=blue)
+    for label, x, _w in columns:
+        draw.text((x, y + 2), label, fill="#FFFFFF", font=head_font)
+
+    y += 42
+    for index, row in visible_df.iterrows():
+        fill = "#FFFFFF" if index % 2 == 0 else "#EEF4FA"
+        draw.rectangle((28, y - 3, width - 28, y + row_h - 3), fill=fill)
+        values = [
+            row["data_reserva"].strftime("%d/%m/%Y"),
+            row.get("motorista", ""),
+            row.get("cidade", ""),
+            row.get("hotel_pousada", ""),
+            row.get("tipo", ""),
+            format_currency_br(row.get("valor", 0)),
+            str(row.get("dias", "")),
+        ]
+        for value, (_label, x, col_w) in zip(values, columns):
+            draw.text((x, y + 5), _fit_text(draw, value, row_font, col_w), fill=text, font=row_font)
+        y += row_h
+
+    if quantidade > PNG_MAX_ROWS:
+        msg = f"Mostrando as primeiras {PNG_MAX_ROWS} reservas de {quantidade}. Use filtros para gerar uma imagem mais especifica."
+        draw.text((52, y + 12), msg, fill="#92400E", font=small_font)
+
+    buffer = BytesIO()
+    img.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
 def _export_buttons(df: pd.DataFrame) -> None:
     formatted = _format_table(df)
-    col_csv, col_excel = st.columns(2)
+    col_csv, col_excel, col_png = st.columns(3)
     with col_csv:
         st.download_button(
             "Exportar CSV",
@@ -222,12 +331,21 @@ def _export_buttons(df: pd.DataFrame) -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
         )
+    with col_png:
+        st.download_button(
+            "Exportar PNG",
+            data=_to_png_bytes(df),
+            file_name=f"reservas_{date.today().strftime('%Y%m%d')}.png",
+            mime="image/png",
+            width="stretch",
+        )
 
 
 def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     sort_options = {
+        "Hoje primeiro": ["hoje_primeiro", "data_reserva"],
         "Data": ["data_reserva"],
         "Ano": ["ano", "mes", "dia", "data_reserva"],
         "Mês": ["mes", "dia", "ano", "data_reserva"],
@@ -243,8 +361,8 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
         "Categoria": ["categoria", "data_reserva"],
     }
     current = st.session_state.get(
-        "reservas_ordem_aplicada",
-        {"sort_label": "Data", "ascending": False, "page_size": 25, "page": 1},
+        "reservas_ordem_aplicada_v2",
+        {"sort_label": "Hoje primeiro", "ascending": False, "page_size": 25, "page": 1},
     )
     if current["sort_label"] not in sort_options:
         current["sort_label"] = "Data"
@@ -289,7 +407,7 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
             "page_size": page_size,
             "page": int(page),
         }
-        st.session_state["reservas_ordem_aplicada"] = current
+        st.session_state["reservas_ordem_aplicada_v2"] = current
 
     sort_label = current["sort_label"]
     ascending = current["ascending"]
@@ -319,7 +437,7 @@ def _edit_reserva(df: pd.DataFrame) -> None:
         )
         reserva = get_reserva(int(reserva_id))
         if not reserva:
-            st.warning("Reserva n?o encontrada.")
+            st.warning("Reserva nao encontrada.")
             return
 
         with st.form(f"edit_reserva_form_{reserva_id}"):
@@ -338,16 +456,16 @@ def _edit_reserva(df: pd.DataFrame) -> None:
                 valor = st.text_input("Valor", value=format_currency_br(reserva["valor"]), key=f"edit_valor_{reserva_id}")
                 dias = st.number_input("Dias", min_value=1, value=int(reserva["dias"]), step=1, key=f"edit_dias_{reserva_id}")
                 nao_planejada = st.checkbox(
-                    "N?o planejada", value=bool(reserva["nao_planejada"]), key=f"edit_np_{reserva_id}"
+                    "Nao planejada", value=bool(reserva["nao_planejada"]), key=f"edit_np_{reserva_id}"
                 )
             categoria = st.text_input("Categoria", value=reserva["categoria"] or "", key=f"edit_categoria_{reserva_id}")
             observacao = st.text_area(
-                "Observa??o", value=reserva["observacao"] or "", height=90, key=f"edit_obs_{reserva_id}"
+                "Observacao", value=reserva["observacao"] or "", height=90, key=f"edit_obs_{reserva_id}"
             )
             allow_duplicate = st.checkbox(
-                "Salvar mesmo que exista poss?vel duplicidade", key=f"edit_allow_dup_{reserva_id}"
+                "Salvar mesmo que exista possivel duplicidade", key=f"edit_allow_dup_{reserva_id}"
             )
-            submitted = st.form_submit_button("Salvar altera??es", type="primary", width="stretch")
+            submitted = st.form_submit_button("Salvar alteracoes", type="primary", width="stretch")
 
         if submitted:
             data = {
@@ -374,11 +492,11 @@ def _edit_reserva(df: pd.DataFrame) -> None:
                 st.rerun()
             except DuplicateReservationError as exc:
                 st.warning(
-                    f"Poss?vel duplicidade com a reserva ID {exc.duplicate['id']}. "
-                    "Marque a confirma??o para salvar mesmo assim."
+                    f"Possivel duplicidade com a reserva ID {exc.duplicate['id']}. "
+                    "Marque a confirmacao para salvar mesmo assim."
                 )
             except Exception as exc:
-                st.error("N?o foi poss?vel atualizar a reserva.")
+                st.error("Nao foi possivel atualizar a reserva.")
                 st.exception(exc)
 
 
@@ -398,14 +516,14 @@ def _delete_reserva(df: pd.DataFrame) -> None:
             submitted = st.form_submit_button("Excluir reserva", type="primary", width="stretch")
         if submitted:
             if not confirm:
-                st.warning("Confirme a exclus?o antes de continuar.")
+                st.warning("Confirme a exclusao antes de continuar.")
                 return
             try:
                 delete_reserva(int(reserva_id))
-                st.success("Reserva exclu?da.")
+                st.success("Reserva excluida.")
                 st.rerun()
             except Exception as exc:
-                st.error("N?o foi poss?vel excluir a reserva.")
+                st.error("Nao foi possivel excluir a reserva.")
                 st.exception(exc)
 
 
