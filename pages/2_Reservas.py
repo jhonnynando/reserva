@@ -250,15 +250,15 @@ def _to_excel_bytes(df: pd.DataFrame) -> bytes:
 def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     windows_fonts = Path("C:/Windows/Fonts")
     candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
+        if bold
+        else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         windows_fonts / ("arialbd.ttf" if bold else "arial.ttf"),
         windows_fonts / ("segoeuib.ttf" if bold else "segoeui.ttf"),
         windows_fonts / ("calibrib.ttf" if bold else "calibri.ttf"),
         "arialbd.ttf" if bold else "arial.ttf",
         "segoeuib.ttf" if bold else "segoeui.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
-        if bold
-        else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
     ]
     for candidate in candidates:
         try:
