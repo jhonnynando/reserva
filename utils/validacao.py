@@ -79,21 +79,22 @@ def parse_int_positive(value: Any) -> int | None:
     return number if number > 0 else None
 
 
-def validate_reserva(data: dict[str, Any]) -> list[str]:
+def validate_reserva(data: dict[str, Any], strict: bool = True) -> list[str]:
     errors: list[str] = []
     if not data.get("data_reserva"):
         errors.append("Data obrigatória.")
-    if not clean_text(data.get("motorista")):
-        errors.append("Motorista obrigatório.")
-    if not clean_text(data.get("cidade")):
-        errors.append("Cidade obrigatória.")
-    if not clean_text(data.get("hotel_pousada")):
-        errors.append("Hotel/Pousada obrigatório.")
+    if strict:
+        if not clean_text(data.get("motorista")):
+            errors.append("Motorista obrigatório.")
+        if not clean_text(data.get("cidade")):
+            errors.append("Cidade obrigatória.")
+        if not clean_text(data.get("hotel_pousada")):
+            errors.append("Hotel/Pousada obrigatório.")
 
     valor = data.get("valor")
     if not isinstance(valor, Decimal):
         valor = parse_decimal_br(valor)
-    if valor is None or valor <= 0:
+    if strict and (valor is None or valor <= 0):
         errors.append("Valor deve ser maior que zero.")
 
     dias = data.get("dias")

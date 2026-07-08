@@ -549,7 +549,7 @@ def _render_editable_table(page_df: pd.DataFrame) -> None:
                 "Excluir": st.column_config.CheckboxColumn("Excluir", help="Marque para excluir esta reserva."),
                 "ID": st.column_config.NumberColumn("ID", disabled=True),
                 "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
-                "Valor": st.column_config.NumberColumn("Valor", min_value=0.01, step=1.0, format="R$ %.2f", required=True),
+                "Valor": st.column_config.NumberColumn("Valor", min_value=0.0, step=1.0, format="R$ %.2f"),
                 "Dias": st.column_config.NumberColumn("Dias", min_value=1, step=1, required=True),
                 "Nao planejada": st.column_config.CheckboxColumn("Nao planejada"),
                 "Observacao": st.column_config.TextColumn("Observacao", width="medium"),
@@ -588,7 +588,7 @@ def _render_editable_table(page_df: pd.DataFrame) -> None:
     errors: list[str] = []
     saved = 0
     for reserva_id, data in changes:
-        validation_errors = validate_reserva(data)
+        validation_errors = validate_reserva(data, strict=False)
         if validation_errors:
             errors.append(f"ID {reserva_id}: {' '.join(validation_errors)}")
             continue

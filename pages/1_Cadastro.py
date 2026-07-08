@@ -22,13 +22,13 @@ def _build_reserva_payload(prefix: str) -> dict:
         "valor": valor,
         "dias": int(st.session_state.get(f"{prefix}_dias") or 0),
         "nao_planejada": bool(st.session_state.get(f"{prefix}_nao_planejada")),
-        "categoria": st.session_state.get(f"{prefix}_categoria", ""),
-        "observacao": st.session_state.get(f"{prefix}_observacao", ""),
+        "categoria": "",
+        "observacao": "",
     }
 
 
 def _save_reserva(data: dict, allow_duplicate: bool = False) -> None:
-    errors = validate_reserva(data)
+    errors = validate_reserva(data, strict=False)
     if errors:
         for error in errors:
             st.warning(error)
@@ -79,8 +79,6 @@ with st.form(f"{prefix}_form"):
         st.number_input("Dias", min_value=1, step=1, value=1, key=f"{prefix}_dias")
         st.checkbox("Nao planejada", key=f"{prefix}_nao_planejada")
 
-    st.text_input("Categoria", placeholder="Escreva a categoria", key=f"{prefix}_categoria")
-    st.text_area("Observacao", height=110, key=f"{prefix}_observacao")
     submitted = st.form_submit_button("Salvar reserva", type="primary", width="stretch")
 
 if submitted:
