@@ -19,7 +19,7 @@ from services.reserva_service import (
     list_reservas,
     update_reserva,
 )
-from utils.formatacao import format_currency_br, format_date_br, parse_decimal_br
+from utils.formatacao import format_currency_br, format_date_br, format_decimal_br, parse_decimal_br
 from utils.ui import bootstrap_database, metric_card, page_header, render_sidebar, setup_page
 from utils.validacao import clean_text, parse_date_br, parse_int_positive, validate_reserva
 
@@ -230,7 +230,7 @@ def _editable_table(df: pd.DataFrame) -> pd.DataFrame:
             "Cidade": df["cidade"].fillna(""),
             "Hotel/Pousada": df["hotel_pousada"].fillna(""),
             "Tipo": df["tipo"].fillna(""),
-            "Valor": pd.to_numeric(df["valor"], errors="coerce").fillna(0).astype(float),
+            "Valor": pd.to_numeric(df["valor"], errors="coerce").fillna(0).apply(format_decimal_br),
             "Dias": pd.to_numeric(df["dias"], errors="coerce").fillna(1).astype(int),
             "Nao planejada": df["nao_planejada"].fillna(False).astype(bool),
             "Categoria": df["categoria"].fillna(""),
@@ -549,7 +549,7 @@ def _render_editable_table(page_df: pd.DataFrame) -> None:
                 "Excluir": st.column_config.CheckboxColumn("Excluir", help="Marque para excluir esta reserva."),
                 "ID": st.column_config.NumberColumn("ID", disabled=True),
                 "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
-                "Valor": st.column_config.NumberColumn("Valor", min_value=0.0, step=1.0, format="R$ %.2f"),
+                "Valor": st.column_config.TextColumn("Valor", help="Digite com virgula para centavos. Ex: 249,90"),
                 "Dias": st.column_config.NumberColumn("Dias", min_value=1, step=1, required=True),
                 "Nao planejada": st.column_config.CheckboxColumn("Nao planejada"),
                 "Observacao": st.column_config.TextColumn("Observacao", width="medium"),

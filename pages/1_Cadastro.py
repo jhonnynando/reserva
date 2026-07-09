@@ -73,7 +73,7 @@ with st.form(f"{prefix}_form"):
         st.text_input("Tipo", placeholder="Escreva o tipo", key=f"{prefix}_tipo")
 
     with col3:
-        st.number_input("Valor", min_value=0.0, step=10.0, format="%.2f", key=f"{prefix}_valor")
+        st.text_input("Valor", value="0,00", placeholder="Ex: 305,50", key=f"{prefix}_valor")
         valor_atual = parse_decimal_br(st.session_state.get(f"{prefix}_valor"))
         st.caption(f"Valor informado: {format_currency_br(valor_atual)}")
         st.number_input("Dias", min_value=1, step=1, value=1, key=f"{prefix}_dias")
