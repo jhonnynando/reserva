@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import streamlit as st
@@ -25,6 +26,9 @@ from utils.validacao import clean_text, parse_date_br, parse_int_positive, valid
 
 
 PNG_MAX_ROWS = 120
+FILTERS_STATE_VERSION = 2
+APP_TIMEZONE = "America/Sao_Paulo"
+APP_TIMEZONE_FALLBACK = timezone(timedelta(hours=-3))
 
 
 MONTHS = [
@@ -45,6 +49,7 @@ MONTHS = [
 
 
 FILTER_KEYS = [
+    "f_somente_hoje",
     "f_data_inicio",
     "f_data_fim",
     "f_ano",
@@ -63,6 +68,42 @@ FILTER_KEYS = [
 ]
 
 
+def _today() -> date:
+    try:
+        return datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+    except ZoneInfoNotFoundError:
+        return datetime.now(APP_TIMEZONE_FALLBACK).date()
+
+
+def _reset_filters_to_today(hoje: date) -> None:
+    for key in FILTER_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state.update(
+        {
+            "f_somente_hoje": True,
+            "f_data_inicio": hoje,
+            "f_data_fim": hoje,
+            "f_ano": "Todos",
+            "f_mes": MONTHS[0],
+            "f_dia": "Todos",
+            "f_motorista": "Todos",
+            "f_ajudante": "Todos",
+            "f_cidade": "Todos",
+            "f_hotel": "Todos",
+            "f_tipo": "Todos",
+            "f_categoria": "Todos",
+            "f_nao_planejada": "Todas",
+            "f_valor_min": "",
+            "f_valor_max": "",
+            "f_busca": "",
+        }
+    )
+    st.session_state.pop("reservas_filtros_aplicados", None)
+    st.session_state["reservas_filtros_inicializados"] = True
+    st.session_state["reservas_filtros_versao"] = FILTERS_STATE_VERSION
+    st.session_state["reservas_filtros_dia_referencia"] = hoje
+
+
 def _choice(label: str, options: list[str], key: str) -> str | None:
     selected = st.selectbox(label, ["Todos"] + options, key=key)
     return None if selected == "Todos" else selected
@@ -70,31 +111,72 @@ def _choice(label: str, options: list[str], key: str) -> str | None:
 
 def _build_filters() -> dict[str, Any]:
     years = available_years()
-    precisa_padrao_hoje = st.session_state.get("reservas_filtros_padrao_hoje_v1") is not True
+    hoje = _today()
+    precisa_padrao_hoje = st.session_state.get("reservas_filtros_versao") != FILTERS_STATE_VERSION
+    mudou_o_dia = st.session_state.get("reservas_filtros_dia_referencia") != hoje
+    faltam_controles = any(
+        key not in st.session_state for key in ("f_somente_hoje", "f_data_inicio", "f_data_fim")
+    )
+    reiniciar_solicitado = st.session_state.pop("reservas_resetar_para_hoje", False)
     if (
         precisa_padrao_hoje
-        or st.session_state.pop("reservas_resetar_para_hoje", False)
+        or mudou_o_dia
+        or faltam_controles
+        or reiniciar_solicitado
         or "reservas_filtros_inicializados" not in st.session_state
     ):
-        hoje = date.today()
+        _reset_filters_to_today(hoje)
+
+    somente_hoje = st.toggle(
+        "Exibir somente as reservas de hoje",
+        key="f_somente_hoje",
+        help="Desative esta opção para consultar reservas de outras datas.",
+    )
+    if somente_hoje:
         st.session_state["f_data_inicio"] = hoje
         st.session_state["f_data_fim"] = hoje
-        st.session_state.pop("reservas_filtros_aplicados", None)
-        st.session_state["reservas_filtros_inicializados"] = True
-        st.session_state["reservas_filtros_padrao_hoje_v1"] = True
+        st.session_state["f_ano"] = "Todos"
+        st.session_state["f_mes"] = MONTHS[0]
+        st.session_state["f_dia"] = "Todos"
+        st.caption(f"Mostrando somente as reservas de hoje: {hoje.strftime('%d/%m/%Y')}.")
+    else:
+        st.caption("Escolha o período desejado e clique em Aplicar filtros.")
 
     with st.form("reservas_filtros_form"):
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            data_inicio = st.date_input("Período inicial", value=None, format="DD/MM/YYYY", key="f_data_inicio")
+            data_inicio = st.date_input(
+                "Período inicial",
+                value=None,
+                format="DD/MM/YYYY",
+                key="f_data_inicio",
+                disabled=somente_hoje,
+            )
         with col2:
-            data_fim = st.date_input("Período final", value=None, format="DD/MM/YYYY", key="f_data_fim")
+            data_fim = st.date_input(
+                "Período final",
+                value=None,
+                format="DD/MM/YYYY",
+                key="f_data_fim",
+                disabled=somente_hoje,
+            )
         with col3:
-            ano = st.selectbox("Ano", ["Todos"] + years, key="f_ano")
+            ano = st.selectbox("Ano", ["Todos"] + years, key="f_ano", disabled=somente_hoje)
         with col4:
-            mes = st.selectbox("Mês", MONTHS, format_func=lambda item: item[0], key="f_mes")
+            mes = st.selectbox(
+                "Mês",
+                MONTHS,
+                format_func=lambda item: item[0],
+                key="f_mes",
+                disabled=somente_hoje,
+            )
         with col5:
-            dia = st.selectbox("Dia", ["Todos"] + list(range(1, 32)), key="f_dia")
+            dia = st.selectbox(
+                "Dia",
+                ["Todos"] + list(range(1, 32)),
+                key="f_dia",
+                disabled=somente_hoje,
+            )
 
         col5, col6, col7, col8 = st.columns(4)
         with col5:
@@ -127,15 +209,13 @@ def _build_filters() -> dict[str, Any]:
             limpar = st.form_submit_button("Limpar filtros", width="stretch")
 
         if limpar:
-            for key in FILTER_KEYS:
-                st.session_state.pop(key, None)
             st.session_state.pop("reservas_filtros_aplicados", None)
             st.session_state["reservas_resetar_para_hoje"] = True
             st.rerun()
 
     filtros = {
-        "data_inicio": data_inicio,
-        "data_fim": data_fim,
+        "data_inicio": hoje if somente_hoje else data_inicio,
+        "data_fim": hoje if somente_hoje else data_fim,
         "ano": None if ano == "Todos" else ano,
         "mes": mes[1],
         "dia": None if dia == "Todos" else dia,
@@ -150,7 +230,7 @@ def _build_filters() -> dict[str, Any]:
         "valor_max": valor_max,
         "busca": clean_text(busca),
     }
-    if aplicar or "reservas_filtros_aplicados" not in st.session_state:
+    if somente_hoje or aplicar or "reservas_filtros_aplicados" not in st.session_state:
         st.session_state["reservas_filtros_aplicados"] = filtros
     return st.session_state["reservas_filtros_aplicados"]
 
@@ -163,7 +243,7 @@ def _prepare_df(records: list[dict[str, Any]]) -> pd.DataFrame:
     df["ano"] = df["data_reserva"].dt.year
     df["mes"] = df["data_reserva"].dt.month
     df["dia"] = df["data_reserva"].dt.day
-    df["hoje_primeiro"] = (df["data_reserva"].dt.date == date.today()).astype(int)
+    df["hoje_primeiro"] = (df["data_reserva"].dt.date == _today()).astype(int)
     df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
     df["dias"] = pd.to_numeric(df["dias"], errors="coerce").fillna(0).astype(int)
     return df
@@ -295,7 +375,7 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     visible_df = report_df.head(PNG_MAX_ROWS).copy()
     total = float(df["valor"].sum()) if not df.empty else 0
     quantidade = len(df)
-    hoje = date.today().strftime("%d/%m/%Y")
+    hoje = _today().strftime("%d/%m/%Y")
 
     width = 1500
     margin = 34
@@ -410,7 +490,7 @@ def _export_buttons(df: pd.DataFrame) -> None:
         st.download_button(
             "Exportar PNG",
             data=_to_png_bytes(df),
-            file_name=f"reservas_{date.today().strftime('%Y%m%d')}.png",
+            file_name=f"reservas_{_today().strftime('%Y%m%d')}.png",
             mime="image/png",
             width="stretch",
         )
