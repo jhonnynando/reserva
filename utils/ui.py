@@ -535,11 +535,6 @@ def render_sidebar(user: dict[str, Any] | None, current_page: str | None = None)
         st.page_link("pages/2_Reservas.py", label="Reservas", icon=":material/event_available:")
         st.page_link("pages/3_Dashboard.py", label="Dashboard", icon=":material/space_dashboard:")
 
-        st.markdown("<div class='sidebar-section-label'>Gestão</div>", unsafe_allow_html=True)
-        st.page_link("pages/1_Cadastro.py", label="Nova reserva", icon=":material/add_circle:")
-        st.page_link("pages/4_Importar_Excel.py", label="Importar Excel", icon=":material/upload_file:")
-        st.page_link("app.py", label="Início", icon=":material/home:")
-
         if user:
             st.markdown(
                 f"""
