@@ -31,20 +31,41 @@ def _home_metrics() -> None:
 
 
 def _home() -> None:
-    page_header("Painel inicial", "Sistema aberto para cadastro, consulta e analise de reservas.")
+    page_header("Painel inicial", "Acompanhe a operação diária e os indicadores de hospedagem.")
     _home_metrics()
 
-    st.markdown("### Acesso rapido")
-    cols = st.columns(3)
+    st.markdown(
+        """
+        <div class="main-section-heading">
+            <span>Acesso principal</span>
+            <strong>O que você precisa agora?</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(2)
     with cols[0]:
-        st.page_link("pages/1_Cadastro.py", label="Cadastrar reserva", icon=":material/add_circle:")
+        st.page_link("pages/2_Reservas.py", label="Abrir reservas", icon=":material/event_available:")
     with cols[1]:
-        st.page_link("pages/2_Reservas.py", label="Consultar reservas", icon=":material/table_view:")
-    with cols[2]:
-        st.page_link("pages/3_Dashboard.py", label="Dashboard", icon=":material/monitoring:")
+        st.page_link("pages/3_Dashboard.py", label="Ver dashboard", icon=":material/monitoring:")
+
+    st.markdown(
+        """
+        <div class="main-section-heading">
+            <span>Outras ações</span>
+            <strong>Cadastro e importação</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    support_cols = st.columns(2)
+    with support_cols[0]:
+        st.page_link("pages/1_Cadastro.py", label="Cadastrar nova reserva", icon=":material/add_circle:")
+    with support_cols[1]:
+        st.page_link("pages/4_Importar_Excel.py", label="Importar planilha", icon=":material/upload_file:")
 
 
 setup_page("Inicio")
 bootstrap_database()
-render_sidebar(None)
+render_sidebar(None, "Inicio")
 _home()

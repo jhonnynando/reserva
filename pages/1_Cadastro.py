@@ -53,7 +53,7 @@ def _save_reserva(data: dict, allow_duplicate: bool = False) -> None:
 
 setup_page("Cadastro")
 bootstrap_database()
-render_sidebar(None)
+render_sidebar(None, "Cadastro")
 page_header("Cadastro de reserva", "Escreva os dados da reserva para salvar no sistema.")
 
 version = st.session_state.get("cadastro_form_version", 0)

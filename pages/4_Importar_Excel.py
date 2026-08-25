@@ -62,7 +62,7 @@ def _preview_dataframe(records: list[dict]) -> pd.DataFrame:
 
 setup_page("Importar Excel")
 bootstrap_database()
-render_sidebar(None)
+render_sidebar(None, "Importar Excel")
 page_header("Importar Excel", "Importe planilhas .xlsx com validação antes da gravação.")
 
 uploaded_file = st.file_uploader("Arquivo .xlsx", type=["xlsx"])

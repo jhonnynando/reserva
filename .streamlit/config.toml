@@ -5,5 +5,12 @@ fileWatcherType = "none"
 [client]
 toolbarMode = "minimal"
 
+[theme]
+primaryColor = "#1967D2"
+backgroundColor = "#EDF4FA"
+secondaryBackgroundColor = "#F7FBFE"
+textColor = "#102A43"
+font = "sans serif"
+
 [browser]
 gatherUsageStats = false

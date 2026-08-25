@@ -9,7 +9,6 @@ import streamlit as st
 from services.reserva_service import available_years, distinct_values, list_reservas
 from utils.formatacao import format_currency_br
 from utils.ui import bootstrap_database, metric_card, page_header, render_sidebar, setup_page
-from utils.validacao import clean_text
 
 
 MONTHS = [
@@ -45,7 +44,7 @@ def _dashboard_filters() -> dict[str, Any]:
         with col3:
             ano = st.selectbox("Ano", ["Todos"] + years, key="d_ano")
         with col4:
-            mes = st.selectbox("M?s", MONTHS, format_func=lambda item: item[0], key="d_mes")
+            mes = st.selectbox("Mês", MONTHS, format_func=lambda item: item[0], key="d_mes")
 
         col5, col6, col7, col8 = st.columns(4)
         with col5:
@@ -132,12 +131,57 @@ def _bar_sum(df: pd.DataFrame, field: str, title: str, top: int | None = None):
     grouped = df.groupby(field, as_index=False)["valor"].sum().sort_values("valor", ascending=False)
     if top:
         grouped = grouped.head(top)
-    return px.bar(grouped, x=field, y="valor", title=title, text_auto=".2s", color_discrete_sequence=["#145DA0"])
+    fig = px.bar(
+        grouped,
+        x=field,
+        y="valor",
+        title=title,
+        text_auto=".2s",
+        color_discrete_sequence=["#1967D2"],
+    )
+    return _style_figure(fig)
 
 
 def _bar_count(df: pd.DataFrame, field: str, title: str):
     grouped = df.groupby(field, as_index=False)["id"].count().rename(columns={"id": "reservas"})
-    return px.bar(grouped, x=field, y="reservas", title=title, text_auto=True, color_discrete_sequence=["#16A34A"])
+    fig = px.bar(
+        grouped,
+        x=field,
+        y="reservas",
+        title=title,
+        text_auto=True,
+        color_discrete_sequence=["#17A673"],
+    )
+    return _style_figure(fig)
+
+
+def _style_figure(fig):
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(255,255,255,0.12)",
+        font={"family": "Inter, Segoe UI, sans-serif", "color": "#486581", "size": 12},
+        title={"font": {"color": "#0A3157", "size": 17}, "x": 0.035, "xanchor": "left"},
+        margin={"l": 48, "r": 24, "t": 62, "b": 48},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+            "bgcolor": "rgba(255,255,255,0)",
+        },
+        hoverlabel={"bgcolor": "#FFFFFF", "font_color": "#102A43", "bordercolor": "#D9E8F3"},
+        colorway=["#1967D2", "#24B7C7", "#17A673", "#78A9E8", "#61D2BD"],
+    )
+    fig.update_xaxes(showgrid=False, linecolor="rgba(72,101,129,0.16)", tickfont={"color": "#627D98"})
+    fig.update_yaxes(
+        gridcolor="rgba(72,101,129,0.10)",
+        zeroline=False,
+        linecolor="rgba(72,101,129,0.10)",
+        tickfont={"color": "#627D98"},
+    )
+    fig.update_traces(marker_line_width=0)
+    return fig
 
 
 def _render_charts(df: pd.DataFrame) -> None:
@@ -150,9 +194,9 @@ def _render_charts(df: pd.DataFrame) -> None:
             x="mes_label",
             y="valor",
             title="Gastos por mês",
-            color_discrete_sequence=["#145DA0"],
+            color_discrete_sequence=["#1967D2"],
         )
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(_style_figure(fig), width="stretch")
     with col2:
         fig = px.line(
             monthly,
@@ -160,9 +204,10 @@ def _render_charts(df: pd.DataFrame) -> None:
             y="valor",
             markers=True,
             title="Evolução mensal dos gastos",
-            color_discrete_sequence=["#16A34A"],
+            color_discrete_sequence=["#17A673"],
         )
-        st.plotly_chart(fig, width="stretch")
+        fig.update_traces(line={"width": 3}, marker={"size": 8, "line": {"width": 2, "color": "#FFFFFF"}})
+        st.plotly_chart(_style_figure(fig), width="stretch")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -184,9 +229,10 @@ def _render_charts(df: pd.DataFrame) -> None:
             names="planejamento",
             values="reservas",
             title="Reservas planejadas versus não planejadas",
-            color_discrete_sequence=["#145DA0", "#16A34A"],
+            color_discrete_sequence=["#1967D2", "#17A673"],
         )
-        st.plotly_chart(fig, width="stretch")
+        fig.update_traces(hole=.56, textinfo="percent+label", marker={"line": {"color": "#FFFFFF", "width": 2}})
+        st.plotly_chart(_style_figure(fig), width="stretch")
     with col8:
         st.plotly_chart(_bar_count(df, "tipo", "Quantidade de reservas por tipo"), width="stretch")
 
@@ -199,7 +245,7 @@ def _render_charts(df: pd.DataFrame) -> None:
 
 setup_page("Dashboard")
 bootstrap_database()
-render_sidebar(None)
+render_sidebar(None, "Dashboard")
 page_header("Dashboard", "Indicadores e análises das reservas filtradas.")
 
 filters = _dashboard_filters()

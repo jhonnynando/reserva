@@ -771,7 +771,7 @@ def _edit_reserva(df: pd.DataFrame) -> None:
 
 setup_page("Reservas")
 bootstrap_database()
-render_sidebar(None)
+render_sidebar(None, "Reservas")
 page_header("Reservas", "Consulte, filtre, edite e exporte reservas.")
 
 filters = _build_filters()
