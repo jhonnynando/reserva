@@ -34,7 +34,7 @@ def _dashboard_connection(database_url: str) -> psycopg.Connection:
     return psycopg.connect(
         database_url,
         row_factory=dict_row,
-        connect_timeout=15,
+        connect_timeout=5,
         keepalives=1,
         keepalives_idle=30,
         keepalives_interval=10,

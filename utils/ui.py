@@ -1,9 +1,38 @@
 from __future__ import annotations
 
-import time
+import threading
 from typing import Any
 
 import streamlit as st
+
+
+_dashboard_sync_guard = threading.Lock()
+_dashboard_sync_thread: threading.Thread | None = None
+
+
+def _start_dashboard_sync_in_background() -> None:
+    global _dashboard_sync_thread
+
+    with _dashboard_sync_guard:
+        if _dashboard_sync_thread is not None and _dashboard_sync_thread.is_alive():
+            return
+
+        def worker() -> None:
+            try:
+                from services.dashboard_sync_service import sync_pending_reservas
+
+                sync_pending_reservas(limit=100)
+            except Exception:
+                # A fila permanece no banco e sera tentada novamente na proxima
+                # execucao. A indisponibilidade do destino nao bloqueia a interface.
+                pass
+
+        _dashboard_sync_thread = threading.Thread(
+            target=worker,
+            name="dashboard-reservas-sync",
+            daemon=True,
+        )
+        _dashboard_sync_thread.start()
 
 
 def setup_page(title: str) -> None:
@@ -572,22 +601,7 @@ def bootstrap_database() -> None:
         st.exception(exc)
         st.stop()
 
-    # Reenvia alteracoes pendentes por indisponibilidade temporaria do Neon do
-    # dashboard, no maximo uma vez por minuto em cada sessao.
-    last_attempt = float(st.session_state.get("dashboard_sync_last_attempt", 0.0) or 0.0)
-    if time.monotonic() - last_attempt >= 60:
-        st.session_state["dashboard_sync_last_attempt"] = time.monotonic()
-        try:
-            from services.dashboard_sync_service import sync_pending_reservas
-
-            st.session_state["dashboard_sync_last_result"] = sync_pending_reservas(limit=100)
-        except Exception as exc:
-            st.session_state["dashboard_sync_last_result"] = {
-                "pendentes": 0,
-                "sincronizadas": 0,
-                "falhas": 1,
-                "erro": str(exc),
-            }
+    _start_dashboard_sync_in_background()
 
 
 def page_header(title: str, subtitle: str | None = None) -> None:
