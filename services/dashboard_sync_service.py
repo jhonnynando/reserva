@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg
 import streamlit as st
@@ -13,7 +14,11 @@ from database import fetch_all, fetch_one, get_setting, transaction
 
 
 DASHBOARD_SOURCE = "reservas_streamlit"
+APP_TIMEZONE = ZoneInfo("America/Sao_Paulo")
+AUTOMATIC_SYNC_START_HOUR = 6
+AUTOMATIC_SYNC_END_HOUR = 12
 _DASHBOARD_SCHEMA_READY = False
+_SYNC_RUN_LOCK = threading.Lock()
 
 
 class DashboardSyncConfigurationError(RuntimeError):
@@ -305,3 +310,149 @@ def sync_pending_reservas(limit: int = 100) -> dict[str, int]:
             break
     failed = len(pending) - synced
     return {"pendentes": len(pending), "sincronizadas": synced, "falhas": failed}
+
+
+def _pending_count() -> int:
+    row = fetch_one(
+        '''
+        SELECT COUNT(*)::INT AS quantidade
+        FROM reservas_hotel r
+        LEFT JOIN reservas_dashboard_sync s ON s.reserva_id = r.id
+        WHERE r.sincronizar_dashboard = TRUE
+          AND s.source_atualizado_em IS DISTINCT FROM r.atualizado_em
+        '''
+    )
+    return int(row["quantidade"] if row else 0)
+
+
+def sync_all_pending(max_records: int = 5000) -> dict[str, int | bool]:
+    if not _SYNC_RUN_LOCK.acquire(blocking=False):
+        return {
+            "sincronizadas": 0,
+            "falhas": 0,
+            "pendentes": 0,
+            "em_andamento": True,
+        }
+
+    synced = 0
+    failures = 0
+    try:
+        while synced < max_records:
+            batch_size = min(500, max_records - synced)
+            result = sync_pending_reservas(limit=batch_size)
+            synced += int(result["sincronizadas"])
+            if result["falhas"]:
+                failures = int(result["falhas"])
+                break
+            if result["pendentes"] < batch_size:
+                break
+        return {
+            "sincronizadas": synced,
+            "falhas": failures,
+            "pendentes": _pending_count(),
+            "em_andamento": False,
+        }
+    finally:
+        _SYNC_RUN_LOCK.release()
+
+
+def get_scheduled_sync_status(reference: datetime | None = None) -> dict[str, Any] | None:
+    current = reference or datetime.now(APP_TIMEZONE)
+    return fetch_one(
+        '''
+        SELECT data_execucao, status, iniciado_em, concluido_em,
+               qtd_sincronizadas, qtd_pendentes, mensagem
+        FROM reservas_dashboard_execucoes_diarias
+        WHERE data_execucao = %s
+        ''',
+        (current.date(),),
+    )
+
+
+def mark_manual_sync_success(
+    result: dict[str, int | bool],
+    reference: datetime | None = None,
+) -> None:
+    current = reference or datetime.now(APP_TIMEZONE)
+    with transaction() as cur:
+        cur.execute(
+            '''
+            INSERT INTO reservas_dashboard_execucoes_diarias (
+                data_execucao, status, iniciado_em, concluido_em,
+                qtd_sincronizadas, qtd_pendentes, mensagem
+            )
+            VALUES (%s, 'concluido', NOW(), NOW(), %s, 0, %s)
+            ON CONFLICT (data_execucao) DO UPDATE SET
+                status = 'concluido',
+                concluido_em = NOW(),
+                qtd_sincronizadas = EXCLUDED.qtd_sincronizadas,
+                qtd_pendentes = 0,
+                mensagem = EXCLUDED.mensagem
+            ''',
+            (
+                current.date(),
+                int(result["sincronizadas"]),
+                "Envio manual concluido corretamente.",
+            ),
+        )
+
+
+def run_scheduled_sync_if_due(reference: datetime | None = None) -> dict[str, Any]:
+    current = reference or datetime.now(APP_TIMEZONE)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=APP_TIMEZONE)
+    if not AUTOMATIC_SYNC_START_HOUR <= current.hour < AUTOMATIC_SYNC_END_HOUR:
+        return {"executada": False, "motivo": "fora_do_horario"}
+
+    with transaction() as cur:
+        cur.execute(
+            '''
+            INSERT INTO reservas_dashboard_execucoes_diarias (
+                data_execucao, status, iniciado_em, qtd_sincronizadas, qtd_pendentes
+            )
+            VALUES (%s, 'executando', NOW(), 0, 0)
+            ON CONFLICT (data_execucao) DO NOTHING
+            RETURNING data_execucao
+            ''',
+            (current.date(),),
+        )
+        claimed = cur.fetchone()
+
+    if not claimed:
+        return {
+            "executada": False,
+            "motivo": "ja_executada",
+            "status": get_scheduled_sync_status(current),
+        }
+
+    result = sync_all_pending()
+    if result.get("em_andamento"):
+        status = "erro"
+        message = "Ja existe outro envio em andamento."
+    elif result["falhas"] or result["pendentes"]:
+        status = "erro"
+        message = "O envio nao foi concluido; os dados permanecem pendentes."
+    else:
+        status = "concluido"
+        message = "Dados enviados corretamente ao dashboard."
+
+    with transaction() as cur:
+        cur.execute(
+            '''
+            UPDATE reservas_dashboard_execucoes_diarias
+            SET status = %s,
+                concluido_em = NOW(),
+                qtd_sincronizadas = %s,
+                qtd_pendentes = %s,
+                mensagem = %s
+            WHERE data_execucao = %s
+            ''',
+            (
+                status,
+                int(result["sincronizadas"]),
+                int(result["pendentes"]),
+                message,
+                current.date(),
+            ),
+        )
+    return {"executada": True, "status": status, **result}

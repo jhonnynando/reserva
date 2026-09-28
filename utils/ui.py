@@ -19,9 +19,9 @@ def _start_dashboard_sync_in_background() -> None:
 
         def worker() -> None:
             try:
-                from services.dashboard_sync_service import sync_pending_reservas
+                from services.dashboard_sync_service import run_scheduled_sync_if_due
 
-                sync_pending_reservas(limit=100)
+                run_scheduled_sync_if_due()
             except Exception:
                 # A fila permanece no banco e sera tentada novamente na proxima
                 # execucao. A indisponibilidade do destino nao bloqueia a interface.
@@ -564,6 +564,49 @@ def render_sidebar(user: dict[str, Any] | None, current_page: str | None = None)
         )
         st.page_link("pages/2_Reservas.py", label="Reservas", icon=":material/event_available:")
         st.page_link("pages/3_Dashboard.py", label="Dashboard", icon=":material/space_dashboard:")
+
+        st.markdown('<div class="sidebar-section-label">Sincronizacao</div>', unsafe_allow_html=True)
+        manual_clicked = st.button(
+            "Enviar ao Dashboard agora",
+            icon=":material/sync:",
+            width="stretch",
+            key="send_dashboard_now",
+        )
+        if manual_clicked:
+            from services.dashboard_sync_service import mark_manual_sync_success, sync_all_pending
+
+            with st.spinner("Enviando reservas..."):
+                result = sync_all_pending()
+            if result.get("em_andamento"):
+                st.info("Ja existe um envio em andamento.")
+            elif result["falhas"] or result["pendentes"]:
+                st.error("Nao foi possivel concluir. Os dados continuam pendentes para nova tentativa.")
+            elif result["sincronizadas"]:
+                mark_manual_sync_success(result)
+                st.success(f"Enviado corretamente: {result['sincronizadas']} reserva(s).")
+            else:
+                mark_manual_sync_success(result)
+                st.success("Dashboard atualizado. Nenhuma reserva pendente.")
+
+        try:
+            from services.dashboard_sync_service import APP_TIMEZONE, get_scheduled_sync_status
+
+            sync_status = None if manual_clicked else get_scheduled_sync_status()
+            if sync_status and sync_status["status"] == "concluido":
+                completed_at = sync_status.get("concluido_em")
+                if completed_at and completed_at.tzinfo:
+                    completed_at = completed_at.astimezone(APP_TIMEZONE)
+                time_label = completed_at.strftime("%H:%M") if completed_at else "hoje"
+                st.success(
+                    f"Envio automatico concluido as {time_label}: "
+                    f"{sync_status['qtd_sincronizadas']} reserva(s)."
+                )
+            elif sync_status and sync_status["status"] == "executando":
+                st.info("Envio automatico em andamento.")
+            elif sync_status and sync_status["status"] == "erro":
+                st.warning("O envio automatico falhou. Use o botao para tentar novamente.")
+        except Exception:
+            pass
 
         if user:
             st.markdown(

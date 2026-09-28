@@ -100,7 +100,11 @@ DASHBOARD_DATABASE_URL = "postgresql://usuario_dashboard:senha@host_dashboard/ne
 - Toda nova reserva recebe um UUID permanente e e enviada por UPSERT para `dashboard_hoteis`.
 - Edicoes posteriores substituem todos os campos do mesmo UUID, inclusive por valores vazios.
 - Se o Neon do dashboard estiver temporariamente indisponivel, a alteracao permanece pendente e
-  e reenviada automaticamente nas proximas execucoes do app.
+  pode ser reenviada manualmente.
+- O envio automatico ocorre uma vez por dia, na primeira execucao entre 06:00 e 12:00
+  (horario de Sao Paulo). Fora desse periodo, somente o botao manual envia dados.
+- O menu lateral possui o botao `Enviar ao Dashboard agora` e mostra um alerta com o
+  resultado do envio.
 - O dashboard continua mantendo suas linhas historicas, que nao possuem UUID de origem.
 
 ## 7. Publicar no Render

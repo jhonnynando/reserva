@@ -81,6 +81,16 @@ CREATE TABLE IF NOT EXISTS reservas_dashboard_sync (
     ultimo_erro TEXT
 );
 
+CREATE TABLE IF NOT EXISTS reservas_dashboard_execucoes_diarias (
+    data_execucao DATE PRIMARY KEY,
+    status VARCHAR(20) NOT NULL,
+    iniciado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    concluido_em TIMESTAMPTZ,
+    qtd_sincronizadas INTEGER NOT NULL DEFAULT 0,
+    qtd_pendentes INTEGER NOT NULL DEFAULT 0,
+    mensagem TEXT
+);
+
 ALTER TABLE reservas_hotel
     ALTER COLUMN motorista DROP NOT NULL,
     ALTER COLUMN cidade DROP NOT NULL,
