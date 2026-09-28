@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import streamlit as st
@@ -570,6 +571,23 @@ def bootstrap_database() -> None:
         st.error("Não foi possível inicializar o banco de dados.")
         st.exception(exc)
         st.stop()
+
+    # Reenvia alteracoes pendentes por indisponibilidade temporaria do Neon do
+    # dashboard, no maximo uma vez por minuto em cada sessao.
+    last_attempt = float(st.session_state.get("dashboard_sync_last_attempt", 0.0) or 0.0)
+    if time.monotonic() - last_attempt >= 60:
+        st.session_state["dashboard_sync_last_attempt"] = time.monotonic()
+        try:
+            from services.dashboard_sync_service import sync_pending_reservas
+
+            st.session_state["dashboard_sync_last_result"] = sync_pending_reservas(limit=100)
+        except Exception as exc:
+            st.session_state["dashboard_sync_last_result"] = {
+                "pendentes": 0,
+                "sincronizadas": 0,
+                "falhas": 1,
+                "erro": str(exc),
+            }
 
 
 def page_header(title: str, subtitle: str | None = None) -> None:

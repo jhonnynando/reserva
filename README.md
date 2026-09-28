@@ -42,7 +42,11 @@ Edite o `.env`:
 
 ```env
 DATABASE_URL=postgresql://usuario:senha@host/neondb?sslmode=require
+DASHBOARD_DATABASE_URL=postgresql://usuario_dashboard:senha@host_dashboard/neondb?sslmode=require
 ```
+
+`DASHBOARD_DATABASE_URL` deve apontar para o Neon usado pelo Dashboard Operacional.
+Pode ser igual a `DATABASE_URL` quando os dois sistemas compartilham o mesmo banco.
 
 Nao coloque a URL real do banco dentro do codigo.
 
@@ -86,7 +90,18 @@ Na primeira execucao, o sistema conecta no Neon e cria as tabelas e indices se a
 
 ```toml
 DATABASE_URL = "postgresql://usuario:senha@host/neondb?sslmode=require"
+DASHBOARD_DATABASE_URL = "postgresql://usuario_dashboard:senha@host_dashboard/neondb?sslmode=require"
 ```
+
+## Sincronizacao com o Dashboard Operacional
+
+- Reservas anteriores a setembro de 2026 permanecem somente no sistema de reservas.
+- As reservas de setembro de 2026 entram no primeiro envio, conforme o corte solicitado.
+- Toda nova reserva recebe um UUID permanente e e enviada por UPSERT para `dashboard_hoteis`.
+- Edicoes posteriores substituem todos os campos do mesmo UUID, inclusive por valores vazios.
+- Se o Neon do dashboard estiver temporariamente indisponivel, a alteracao permanece pendente e
+  e reenviada automaticamente nas proximas execucoes do app.
+- O dashboard continua mantendo suas linhas historicas, que nao possuem UUID de origem.
 
 ## 7. Publicar no Render
 

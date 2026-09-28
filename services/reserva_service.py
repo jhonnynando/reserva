@@ -299,9 +299,10 @@ def insert_reserva_cur(
         """
         INSERT INTO reservas_hotel (
             data_reserva, motorista, ajudante, cidade, hotel_pousada, tipo,
-            valor, dias, nao_planejada, categoria, observacao, criado_por, importacao_id
+            valor, dias, nao_planejada, categoria, observacao, criado_por, importacao_id,
+            sincronizar_dashboard
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
         RETURNING id
         """,
         (
@@ -365,6 +366,9 @@ def create_reserva(data: dict[str, Any], user_id: int | None, allow_duplicate: b
             raise DuplicateReservationError(duplicate)
         reserva_id = insert_reserva_cur(cur, data, user_id)
     clear_reserva_caches()
+    from services.dashboard_sync_service import try_sync_reserva
+
+    try_sync_reserva(reserva_id)
     return reserva_id
 
 
@@ -375,6 +379,9 @@ def update_reserva(reserva_id: int, data: dict[str, Any], allow_duplicate: bool 
             raise DuplicateReservationError(duplicate)
         update_reserva_cur(cur, reserva_id, data)
     clear_reserva_caches()
+    from services.dashboard_sync_service import try_sync_reserva
+
+    try_sync_reserva(reserva_id)
 
 
 def delete_reserva(reserva_id: int) -> None:

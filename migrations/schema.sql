@@ -56,6 +56,31 @@ CREATE TABLE IF NOT EXISTS reservas_hotel (
     importacao_id INTEGER REFERENCES importacoes(id) ON DELETE SET NULL
 );
 
+-- A coluna de corte nasce como FALSE para que nenhuma reserva anterior a esta
+-- implantacao seja enviada ao dashboard. Os novos INSERTs da aplicacao gravam
+-- explicitamente TRUE.
+ALTER TABLE reservas_hotel
+    ADD COLUMN IF NOT EXISTS sync_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    ADD COLUMN IF NOT EXISTS sincronizar_dashboard BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Excecao solicitada para a implantacao: incluir as reservas de setembro/2026.
+-- Meses anteriores continuam fora da integracao.
+UPDATE reservas_hotel
+SET sincronizar_dashboard = TRUE
+WHERE data_reserva >= DATE '2026-09-01'
+  AND data_reserva < DATE '2026-10-01';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reservas_hotel_sync_id
+    ON reservas_hotel (sync_id);
+
+-- Estado separado evita alterar atualizado_em apenas para registrar o envio.
+CREATE TABLE IF NOT EXISTS reservas_dashboard_sync (
+    reserva_id INTEGER PRIMARY KEY REFERENCES reservas_hotel(id) ON DELETE CASCADE,
+    source_atualizado_em TIMESTAMPTZ,
+    sincronizado_em TIMESTAMPTZ,
+    ultimo_erro TEXT
+);
+
 ALTER TABLE reservas_hotel
     ALTER COLUMN motorista DROP NOT NULL,
     ALTER COLUMN cidade DROP NOT NULL,

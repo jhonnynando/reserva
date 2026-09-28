@@ -268,5 +268,8 @@ def import_records(
         )
 
     clear_reserva_caches()
+    from services.dashboard_sync_service import sync_pending_reservas
+
+    sync_pending_reservas(limit=max(imported + updated, 1))
     return {"importados": imported, "atualizados": updated, "ignorados": ignored}
 
