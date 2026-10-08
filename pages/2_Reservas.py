@@ -12,14 +12,15 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 
+from services import reserva_service as reserva_service_module
 from services.reserva_service import (
     DuplicateReservationError,
     available_years,
+    create_reserva,
     delete_reserva,
     distinct_values,
     get_reserva,
     list_reservas,
-    save_reserva_changes,
     update_reserva,
 )
 from utils.formatacao import (
@@ -682,6 +683,25 @@ def _new_rows(edited: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
+def _save_reserva_changes(
+    changes: list[tuple[int, dict[str, Any]]],
+    additions: list[dict[str, Any]],
+) -> tuple[int, list[int]]:
+    batch_save = getattr(reserva_service_module, "save_reserva_changes", None)
+    if callable(batch_save):
+        return batch_save(changes, additions)
+
+    # Compatibilidade com um recarregamento parcial do Streamlit Cloud: a
+    # pagina nova pode iniciar enquanto o modulo de servico antigo ainda esta
+    # em memoria. No proximo reinicio, o caminho atomico acima sera usado.
+    created_ids: list[int] = []
+    for reserva_id, data in changes:
+        update_reserva(reserva_id, data, allow_duplicate=False)
+    for data in additions:
+        created_ids.append(create_reserva(data, None, allow_duplicate=False))
+    return len(changes), created_ids
+
+
 def _editor_key(original: pd.DataFrame, version: int) -> str:
     ids = [str(int(value)) for value in original["ID"].dropna().tolist()]
     dataset_hash = sha1("|".join(ids).encode("utf-8")).hexdigest()[:12]
@@ -805,7 +825,7 @@ def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
         return
 
     try:
-        updated, created_ids = save_reserva_changes(changes, additions)
+        updated, created_ids = _save_reserva_changes(changes, additions)
         created = len(created_ids)
         pinned_ids = {int(value) for value in st.session_state.get("reservas_pinned_ids", [])}
         for reserva_id, data in changes:
