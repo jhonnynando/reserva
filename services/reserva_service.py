@@ -404,7 +404,7 @@ def save_reserva_changes(
                 raise DuplicateReservationError(duplicate)
             created_ids.append(insert_reserva_cur(cur, data, user_id))
 
-    clear_reserva_caches()
+    clear_reserva_caches(include_filter_options=bool(additions))
     return len(changes), created_ids
 
 
@@ -524,13 +524,15 @@ def available_years() -> list[int]:
     return [int(row["ano"]) for row in rows]
 
 
-def clear_reserva_caches() -> None:
+def clear_reserva_caches(include_filter_options: bool = True) -> None:
+    list_reservas.clear()
+    if not include_filter_options:
+        return
     for cached_function in (
         list_motoristas,
         list_ajudantes,
         list_cidades,
         list_hoteis,
-        list_reservas,
         distinct_values,
         available_years,
     ):

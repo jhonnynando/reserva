@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Sequence
@@ -15,6 +16,8 @@ from psycopg.rows import dict_row
 load_dotenv()
 
 Params = Sequence[Any] | dict[str, Any] | None
+CONNECTION_HEALTHCHECK_INTERVAL_SECONDS = 30
+_connection_last_checked = 0.0
 
 
 class DatabaseConfigurationError(RuntimeError):
@@ -61,11 +64,14 @@ def _connection_lock() -> threading.RLock:
 
 
 def _discard_connection(conn: psycopg.Connection | None = None) -> None:
+    global _connection_last_checked
+
     try:
         if conn is not None and not conn.closed:
             conn.close()
     except Exception:
         pass
+    _connection_last_checked = 0.0
     _connect.clear()
 
 
@@ -82,10 +88,17 @@ def _connection_is_alive(conn: psycopg.Connection) -> bool:
 
 
 def get_connection() -> psycopg.Connection:
+    global _connection_last_checked
+
     conn = _connect(get_database_url())
-    if conn.closed or not _connection_is_alive(conn):
+    if conn.closed:
         _discard_connection(conn)
         conn = _connect(get_database_url())
+    now = time.monotonic()
+    if now - _connection_last_checked >= CONNECTION_HEALTHCHECK_INTERVAL_SECONDS:
+        if not _connection_is_alive(conn):
+            conn = _connect(get_database_url())
+        _connection_last_checked = now
     return conn
 
 

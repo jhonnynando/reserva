@@ -12,7 +12,6 @@ from psycopg.rows import dict_row
 
 from database import fetch_all, fetch_one, get_setting, transaction
 
-
 DASHBOARD_SOURCE = "reservas_streamlit"
 APP_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 AUTOMATIC_SYNC_START_HOUR = 6
@@ -356,6 +355,7 @@ def sync_all_pending(max_records: int = 5000) -> dict[str, int | bool]:
         _SYNC_RUN_LOCK.release()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_scheduled_sync_status(reference: datetime | None = None) -> dict[str, Any] | None:
     current = reference or datetime.now(APP_TIMEZONE)
     return fetch_one(
@@ -395,6 +395,7 @@ def mark_manual_sync_success(
                 "Envio manual concluido corretamente.",
             ),
         )
+    get_scheduled_sync_status.clear()
 
 
 def run_scheduled_sync_if_due(reference: datetime | None = None) -> dict[str, Any]:
@@ -455,4 +456,5 @@ def run_scheduled_sync_if_due(reference: datetime | None = None) -> dict[str, An
                 current.date(),
             ),
         )
+    get_scheduled_sync_status.clear()
     return {"executada": True, "status": status, **result}

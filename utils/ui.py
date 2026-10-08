@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 import streamlit as st
 
-
 _dashboard_sync_guard = threading.Lock()
 _dashboard_sync_thread: threading.Thread | None = None
+_dashboard_sync_last_started = 0.0
+DASHBOARD_SYNC_CHECK_INTERVAL_SECONDS = 300
 
 
 def _start_dashboard_sync_in_background() -> None:
-    global _dashboard_sync_thread
+    global _dashboard_sync_last_started, _dashboard_sync_thread
 
     with _dashboard_sync_guard:
         if _dashboard_sync_thread is not None and _dashboard_sync_thread.is_alive():
             return
+        now = time.monotonic()
+        if now - _dashboard_sync_last_started < DASHBOARD_SYNC_CHECK_INTERVAL_SECONDS:
+            return
+        _dashboard_sync_last_started = now
 
         def worker() -> None:
             try:
@@ -573,7 +579,10 @@ def render_sidebar(user: dict[str, Any] | None, current_page: str | None = None)
             key="send_dashboard_now",
         )
         if manual_clicked:
-            from services.dashboard_sync_service import mark_manual_sync_success, sync_all_pending
+            from services.dashboard_sync_service import (
+                mark_manual_sync_success,
+                sync_all_pending,
+            )
 
             with st.spinner("Enviando reservas..."):
                 result = sync_all_pending()
@@ -589,7 +598,10 @@ def render_sidebar(user: dict[str, Any] | None, current_page: str | None = None)
                 st.success("Dashboard atualizado. Nenhuma reserva pendente.")
 
         try:
-            from services.dashboard_sync_service import APP_TIMEZONE, get_scheduled_sync_status
+            from services.dashboard_sync_service import (
+                APP_TIMEZONE,
+                get_scheduled_sync_status,
+            )
 
             sync_status = None if manual_clicked else get_scheduled_sync_status()
             if sync_status and sync_status["status"] == "concluido":

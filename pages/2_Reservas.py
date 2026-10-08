@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from hashlib import sha1
 from io import BytesIO
 from pathlib import Path
@@ -11,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+from reportlab import __file__ as reportlab_file
 
 from services import reserva_service as reserva_service_module
 from services.reserva_service import (
@@ -47,6 +49,7 @@ PNG_MAX_ROWS = 120
 FILTERS_STATE_VERSION = 2
 APP_TIMEZONE = "America/Sao_Paulo"
 APP_TIMEZONE_FALLBACK = timezone(timedelta(hours=-3))
+REPORTLAB_FONT_DIR = Path(reportlab_file).resolve().parent / "fonts"
 
 
 MONTHS = [
@@ -160,76 +163,82 @@ def _build_filters() -> dict[str, Any]:
     else:
         st.caption("Escolha o período desejado e clique em Aplicar filtros.")
 
-    with st.form("reservas_filtros_form"):
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            data_inicio = st.date_input(
-                "Período inicial",
-                value=None,
-                format="DD/MM/YYYY",
-                key="f_data_inicio",
-                disabled=somente_hoje,
-            )
-        with col2:
-            data_fim = st.date_input(
-                "Período final",
-                value=None,
-                format="DD/MM/YYYY",
-                key="f_data_fim",
-                disabled=somente_hoje,
-            )
-        with col3:
-            ano = st.selectbox("Ano", ["Todos"] + years, key="f_ano", disabled=somente_hoje)
-        with col4:
-            mes = st.selectbox(
-                "Mês",
-                MONTHS,
-                format_func=lambda item: item[0],
-                key="f_mes",
-                disabled=somente_hoje,
-            )
-        with col5:
-            dia = st.selectbox(
-                "Dia",
-                ["Todos"] + list(range(1, 32)),
-                key="f_dia",
-                disabled=somente_hoje,
-            )
+    with st.expander("Filtros avançados", expanded=not somente_hoje):
+        with st.form("reservas_filtros_form"):
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                data_inicio = st.date_input(
+                    "Período inicial",
+                    value=None,
+                    format="DD/MM/YYYY",
+                    key="f_data_inicio",
+                    disabled=somente_hoje,
+                )
+            with col2:
+                data_fim = st.date_input(
+                    "Período final",
+                    value=None,
+                    format="DD/MM/YYYY",
+                    key="f_data_fim",
+                    disabled=somente_hoje,
+                )
+            with col3:
+                ano = st.selectbox(
+                    "Ano", ["Todos"] + years, key="f_ano", disabled=somente_hoje
+                )
+            with col4:
+                mes = st.selectbox(
+                    "Mês",
+                    MONTHS,
+                    format_func=lambda item: item[0],
+                    key="f_mes",
+                    disabled=somente_hoje,
+                )
+            with col5:
+                dia = st.selectbox(
+                    "Dia",
+                    ["Todos"] + list(range(1, 32)),
+                    key="f_dia",
+                    disabled=somente_hoje,
+                )
 
-        col5, col6, col7, col8 = st.columns(4)
-        with col5:
-            motorista = _choice("Motorista", distinct_values("motorista"), "f_motorista")
-        with col6:
-            ajudante = _choice("Ajudante", distinct_values("ajudante"), "f_ajudante")
-        with col7:
-            cidade = _choice("Cidade", distinct_values("cidade"), "f_cidade")
-        with col8:
-            hotel = _choice("Hotel/Pousada", distinct_values("hotel_pousada"), "f_hotel")
+            col5, col6, col7, col8 = st.columns(4)
+            with col5:
+                motorista = _choice("Motorista", distinct_values("motorista"), "f_motorista")
+            with col6:
+                ajudante = _choice("Ajudante", distinct_values("ajudante"), "f_ajudante")
+            with col7:
+                cidade = _choice("Cidade", distinct_values("cidade"), "f_cidade")
+            with col8:
+                hotel = _choice("Hotel/Pousada", distinct_values("hotel_pousada"), "f_hotel")
 
-        col9, col10, col11, col12 = st.columns(4)
-        with col9:
-            tipo = _choice("Tipo", distinct_values("tipo"), "f_tipo")
-        with col10:
-            categoria = _choice("Categoria", distinct_values("categoria"), "f_categoria")
-        with col11:
-            nao_planejada_choice = st.selectbox("Não planejada", ["Todas", "Sim", "Não"], key="f_nao_planejada")
-        with col12:
-            busca = st.text_input("Busca geral", key="f_busca")
+            col9, col10, col11, col12 = st.columns(4)
+            with col9:
+                tipo = _choice("Tipo", distinct_values("tipo"), "f_tipo")
+            with col10:
+                categoria = _choice("Categoria", distinct_values("categoria"), "f_categoria")
+            with col11:
+                nao_planejada_choice = st.selectbox(
+                    "Não planejada", ["Todas", "Sim", "Não"], key="f_nao_planejada"
+                )
+            with col12:
+                busca = st.text_input("Busca geral", key="f_busca")
 
-        col13, col14, col15, col16 = st.columns([1, 1, 1, 1])
-        with col13:
-            valor_min = parse_decimal_br(st.text_input("Valor mínimo", key="f_valor_min"))
-        with col14:
-            valor_max = parse_decimal_br(st.text_input("Valor máximo", key="f_valor_max"))
-        with col15:
-            aplicar = st.form_submit_button("Aplicar filtros", type="primary", width="stretch")
-        with col16:
-            limpar = st.form_submit_button("Limpar filtros", width="stretch")
+            col13, col14, col15, col16 = st.columns([1, 1, 1, 1])
+            with col13:
+                valor_min = parse_decimal_br(st.text_input("Valor mínimo", key="f_valor_min"))
+            with col14:
+                valor_max = parse_decimal_br(st.text_input("Valor máximo", key="f_valor_max"))
+            with col15:
+                aplicar = st.form_submit_button("Aplicar filtros", type="primary", width="stretch")
+            with col16:
+                limpar = st.form_submit_button("Limpar filtros", width="stretch")
 
-        if limpar:
-            st.session_state.pop("reservas_filtros_aplicados", None)
-            st.session_state["reservas_resetar_para_hoje"] = True
-            st.rerun()
+            if limpar:
+                st.session_state["reservas_export_ready"] = False
+                st.session_state.pop("reservas_filtros_aplicados", None)
+                st.session_state["reservas_resetar_para_hoje"] = True
+                st.rerun()
 
     filtros = {
         "data_inicio": hoje if somente_hoje else data_inicio,
@@ -249,6 +258,8 @@ def _build_filters() -> dict[str, Any]:
         "busca": clean_text(busca),
     }
     if somente_hoje or aplicar or "reservas_filtros_aplicados" not in st.session_state:
+        if aplicar:
+            st.session_state["reservas_export_ready"] = False
         st.session_state["reservas_filtros_aplicados"] = filtros
     return st.session_state["reservas_filtros_aplicados"]
 
@@ -364,6 +375,7 @@ def _to_excel_bytes(df: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 
+@lru_cache(maxsize=16)
 def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     windows_fonts = Path("C:/Windows/Fonts")
     candidates = [
@@ -371,6 +383,7 @@ def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
         if bold
         else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        REPORTLAB_FONT_DIR / ("VeraBd.ttf" if bold else "Vera.ttf"),
         windows_fonts / ("arialbd.ttf" if bold else "arial.ttf"),
         windows_fonts / ("segoeuib.ttf" if bold else "segoeui.ttf"),
         windows_fonts / ("calibrib.ttf" if bold else "calibri.ttf"),
@@ -390,7 +403,7 @@ def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
 
 def _png_text(value: Any) -> str:
     text = str(value or "")
-    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return unicodedata.normalize("NFC", text)
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
@@ -441,8 +454,13 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
 
     draw.rounded_rectangle((margin, 26, width - margin, 168), radius=18, fill=dark_blue)
     draw.rectangle((margin, 142, width - margin, 168), fill=green)
-    draw.text((margin + 34, 48), "Reservas de Hotéis", fill="#FFFFFF", font=title_font)
-    draw.text((margin + 36, 108), f"Relatório gerado em {hoje}", fill=muted, font=subtitle_font)
+    draw.text((margin + 34, 48), _png_text("Reservas de Hotéis"), fill="#FFFFFF", font=title_font)
+    draw.text(
+        (margin + 36, 108),
+        _png_text(f"Relatório gerado em {hoje}"),
+        fill=muted,
+        font=subtitle_font,
+    )
 
     card_w = 260
     card_h = 92
@@ -474,8 +492,8 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
         draw.text((x, y + 7), _png_text(label), fill="#FFFFFF", font=head_font)
 
     y += table_header_h
-    for index, row in visible_df.iterrows():
-        fill = "#FFFFFF" if index % 2 == 0 else "#EEF4FA"
+    for row_number, (_, row) in enumerate(visible_df.iterrows()):
+        fill = "#FFFFFF" if row_number % 2 == 0 else "#EEF4FA"
         draw.rectangle((margin, y - 2, width - margin, y + row_h - 2), fill=fill)
         draw.line((margin, y + row_h - 2, width - margin, y + row_h - 2), fill=border, width=1)
         values = [
@@ -504,33 +522,45 @@ def _to_png_bytes(df: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 
+def _invalidate_prepared_exports() -> None:
+    st.session_state["reservas_export_ready"] = False
+
+
 def _export_buttons(df: pd.DataFrame) -> None:
-    formatted = _format_table(df)
-    col_csv, col_excel, col_png = st.columns(3)
-    with col_csv:
-        st.download_button(
-            "Exportar CSV",
-            data=formatted.to_csv(index=False, sep=";", encoding="utf-8-sig"),
-            file_name="reservas_filtradas.csv",
-            mime="text/csv",
-            width="stretch",
-        )
-    with col_excel:
-        st.download_button(
-            "Exportar Excel",
-            data=_to_excel_bytes(formatted),
-            file_name="reservas_filtradas.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="stretch",
-        )
-    with col_png:
-        st.download_button(
-            "Exportar PNG",
-            data=_to_png_bytes(df),
-            file_name=f"reservas_{_today().strftime('%Y%m%d')}.png",
-            mime="image/png",
-            width="stretch",
-        )
+    export_ready = bool(st.session_state.get("reservas_export_ready", False))
+    with st.expander("Exportar dados", expanded=export_ready):
+        if not export_ready:
+            st.caption("Os arquivos só são preparados quando você solicitar, deixando a edição mais rápida.")
+            if not st.button("Preparar CSV, Excel e PNG", width="stretch"):
+                return
+            st.session_state["reservas_export_ready"] = True
+
+        formatted = _format_table(df)
+        col_csv, col_excel, col_png = st.columns(3)
+        with col_csv:
+            st.download_button(
+                "Baixar CSV",
+                data=formatted.to_csv(index=False, sep=";", encoding="utf-8-sig"),
+                file_name="reservas_filtradas.csv",
+                mime="text/csv",
+                width="stretch",
+            )
+        with col_excel:
+            st.download_button(
+                "Baixar Excel",
+                data=_to_excel_bytes(formatted),
+                file_name="reservas_filtradas.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+            )
+        with col_png:
+            st.download_button(
+                "Baixar PNG",
+                data=_to_png_bytes(df),
+                file_name=f"reservas_{_today().strftime('%Y%m%d')}.png",
+                mime="image/png",
+                width="stretch",
+            )
 
 
 def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
@@ -561,38 +591,41 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
     page_size_options: list[int | str] = [10, 25, 50, 100, "Todos"]
     if current["page_size"] not in page_size_options:
         current["page_size"] = 25
-    with st.form("reservas_ordem_form"):
-        col_sort, col_dir, col_size, col_page, col_apply = st.columns(5)
-        with col_sort:
-            sort_label = st.selectbox(
-                "Ordenar por",
-                list(sort_options.keys()),
-                index=list(sort_options.keys()).index(current["sort_label"]),
+    with st.expander("Ordenação e paginação"):
+        with st.form("reservas_ordem_form"):
+            col_sort, col_dir, col_size, col_page, col_apply = st.columns(5)
+            with col_sort:
+                sort_label = st.selectbox(
+                    "Ordenar por",
+                    list(sort_options.keys()),
+                    index=list(sort_options.keys()).index(current["sort_label"]),
+                )
+            with col_dir:
+                direction = st.selectbox(
+                    "Direção",
+                    ["Decrescente", "Crescente"],
+                    index=1 if current["ascending"] else 0,
+                )
+            with col_size:
+                page_size = st.selectbox(
+                    "Registros por página",
+                    page_size_options,
+                    index=page_size_options.index(current["page_size"]),
+                )
+            total_pages_form = (
+                1 if page_size == "Todos" else max(1, (len(df) + page_size - 1) // page_size)
             )
-        with col_dir:
-            direction = st.selectbox(
-                "Direção",
-                ["Decrescente", "Crescente"],
-                index=1 if current["ascending"] else 0,
-            )
-        with col_size:
-            page_size = st.selectbox(
-                "Registros por página",
-                page_size_options,
-                index=page_size_options.index(current["page_size"]),
-            )
-        total_pages_form = 1 if page_size == "Todos" else max(1, (len(df) + page_size - 1) // page_size)
-        with col_page:
-            page = st.number_input(
-                "Página",
-                min_value=1,
-                max_value=total_pages_form,
-                value=min(int(current["page"]), total_pages_form),
-                step=1,
-                disabled=page_size == "Todos",
-            )
-        with col_apply:
-            applied = st.form_submit_button("Atualizar tabela", type="primary", width="stretch")
+            with col_page:
+                page = st.number_input(
+                    "Página",
+                    min_value=1,
+                    max_value=total_pages_form,
+                    value=min(int(current["page"]), total_pages_form),
+                    step=1,
+                    disabled=page_size == "Todos",
+                )
+            with col_apply:
+                applied = st.form_submit_button("Aplicar", type="primary", width="stretch")
 
     if applied:
         current = {
@@ -765,6 +798,7 @@ def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
         hide_index=True,
         width="stretch",
         num_rows="add",
+        on_change=_invalidate_prepared_exports,
         disabled=["ID"],
         column_config={
             "Excluir": st.column_config.CheckboxColumn("Excluir", help="Marque para excluir esta reserva."),
