@@ -747,7 +747,8 @@ def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
     st.markdown("### Planilha de reservas")
     st.caption(
         "Salvamento automático ativo: ao confirmar uma célula com Enter, Tab ou clicando fora dela, "
-        "a alteração é gravada. Use o + do editor para adicionar quantas linhas precisar."
+        "a alteração é gravada sem reiniciar a planilha. Use o + do editor para adicionar quantas "
+        "linhas precisar."
     )
     _show_editor_notice()
     page_df = _include_pinned_reservas(page_df)
@@ -803,7 +804,25 @@ def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
         return
 
     changes = _changed_rows(original, edited)
-    additions = _new_rows(edited)
+    started_additions = _new_rows(edited)
+    ready_additions: list[dict[str, Any]] = []
+    pending_additions = 0
+    for data in started_additions:
+        if validate_reserva(data, strict=True):
+            pending_additions += 1
+        else:
+            ready_additions.append(data)
+
+    # Nao reinicie o editor enquanto houver uma nova linha em preenchimento.
+    # Quando varias linhas sao coladas/adicionadas juntas, todas permanecem como
+    # rascunho ate estarem completas, evitando perder uma linha parcial.
+    additions = [] if pending_additions else ready_additions
+    if pending_additions:
+        st.info(
+            f"{pending_additions} nova(s) linha(s) em preenchimento. "
+            "Elas serão salvas quando Motorista, Cidade, Hotel/Pousada e Valor estiverem preenchidos."
+        )
+
     if not changes and not additions:
         return
 
@@ -812,11 +831,6 @@ def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
         validation_errors = validate_reserva(data, strict=False)
         if validation_errors:
             errors.append(f"ID {reserva_id}: {' '.join(validation_errors)}")
-
-    for row_number, data in enumerate(additions, start=1):
-        validation_errors = validate_reserva(data, strict=False)
-        if validation_errors:
-            errors.append(f"Nova linha {row_number}: {' '.join(validation_errors)}")
 
     for error in errors:
         st.warning(error)
@@ -841,9 +855,11 @@ def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
         if created:
             saved_parts.append(f"{created} nova(s) reserva(s) adicionada(s)")
         message = " e ".join(saved_parts) + " automaticamente."
-        st.session_state["reservas_editor_notice"] = ("success", message.capitalize())
-        st.session_state["reservas_editor_version"] = editor_version + 1
-        st.rerun()
+        if created:
+            st.session_state["reservas_editor_notice"] = ("success", message.capitalize())
+            st.session_state["reservas_editor_version"] = editor_version + 1
+            st.rerun()
+        st.success(message.capitalize())
     except DuplicateReservationError as exc:
         st.warning(
             "O salvamento automático foi pausado porque há uma possível duplicidade com a "
