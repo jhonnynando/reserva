@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
-from decimal import Decimal
 from typing import Any
 
 import streamlit as st
 
-from database import execute, execute_returning, fetch_all, fetch_one, transaction
+from database import execute, fetch_all, fetch_one, transaction
 from utils.validacao import clean_text
 
 
@@ -376,6 +374,38 @@ def update_reserva(reserva_id: int, data: dict[str, Any], allow_duplicate: bool 
             raise DuplicateReservationError(duplicate)
         update_reserva_cur(cur, reserva_id, data)
     clear_reserva_caches()
+
+
+def save_reserva_changes(
+    changes: list[tuple[int, dict[str, Any]]],
+    additions: list[dict[str, Any]],
+    user_id: int | None = None,
+) -> tuple[int, list[int]]:
+    """Save all spreadsheet edits atomically.
+
+    Automatic saving must never persist only part of the current editor state. If
+    one row is invalid or duplicated, the transaction is rolled back and the
+    editor keeps every pending value so the user can correct it.
+    """
+    if not changes and not additions:
+        return 0, []
+
+    created_ids: list[int] = []
+    with transaction() as cur:
+        for reserva_id, data in changes:
+            duplicate = find_duplicate_cur(cur, data, ignore_id=reserva_id)
+            if duplicate:
+                raise DuplicateReservationError(duplicate)
+            update_reserva_cur(cur, reserva_id, data)
+
+        for data in additions:
+            duplicate = find_duplicate_cur(cur, data)
+            if duplicate:
+                raise DuplicateReservationError(duplicate)
+            created_ids.append(insert_reserva_cur(cur, data, user_id))
+
+    clear_reserva_caches()
+    return len(changes), created_ids
 
 
 def delete_reserva(reserva_id: int) -> None:

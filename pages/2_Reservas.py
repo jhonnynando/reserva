@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
+from hashlib import sha1
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -14,20 +15,34 @@ from PIL import Image, ImageDraw, ImageFont
 from services.reserva_service import (
     DuplicateReservationError,
     available_years,
-    create_reserva,
     delete_reserva,
     distinct_values,
     get_reserva,
     list_reservas,
+    save_reserva_changes,
     update_reserva,
 )
-from utils.formatacao import format_currency_br, format_date_br, format_decimal_br, parse_decimal_br
-from utils.ui import bootstrap_database, metric_card, page_header, render_sidebar, setup_page
-from utils.validacao import clean_text, parse_date_br, parse_int_positive, validate_reserva
-
+from utils.formatacao import (
+    format_currency_br,
+    format_date_br,
+    format_decimal_br,
+    parse_decimal_br,
+)
+from utils.ui import (
+    bootstrap_database,
+    metric_card,
+    page_header,
+    render_sidebar,
+    setup_page,
+)
+from utils.validacao import (
+    clean_text,
+    parse_date_br,
+    parse_int_positive,
+    validate_reserva,
+)
 
 PNG_MAX_ROWS = 120
-NEW_RESERVATION_ROWS = 10
 FILTERS_STATE_VERSION = 2
 APP_TIMEZONE = "America/Sao_Paulo"
 APP_TIMEZONE_FALLBACK = timezone(timedelta(hours=-3))
@@ -321,24 +336,24 @@ def _editable_table(df: pd.DataFrame, default_date: date) -> pd.DataFrame:
             }
         )
 
-    blank_rows = pd.DataFrame(
+    starter_row = pd.DataFrame(
         {
-            "Excluir": [False] * NEW_RESERVATION_ROWS,
-            "ID": pd.array([pd.NA] * NEW_RESERVATION_ROWS, dtype="Int64"),
-            "Data": [default_date] * NEW_RESERVATION_ROWS,
-            "Motorista": [""] * NEW_RESERVATION_ROWS,
-            "Ajudante": [""] * NEW_RESERVATION_ROWS,
-            "Cidade": [""] * NEW_RESERVATION_ROWS,
-            "Hotel/Pousada": [""] * NEW_RESERVATION_ROWS,
-            "Tipo": [""] * NEW_RESERVATION_ROWS,
-            "Valor": [""] * NEW_RESERVATION_ROWS,
-            "Dias": [1] * NEW_RESERVATION_ROWS,
-            "Nao planejada": [False] * NEW_RESERVATION_ROWS,
-            "Categoria": [""] * NEW_RESERVATION_ROWS,
-            "Observacao": [""] * NEW_RESERVATION_ROWS,
+            "Excluir": [False],
+            "ID": pd.array([pd.NA], dtype="Int64"),
+            "Data": [default_date],
+            "Motorista": [""],
+            "Ajudante": [""],
+            "Cidade": [""],
+            "Hotel/Pousada": [""],
+            "Tipo": [""],
+            "Valor": [""],
+            "Dias": [1],
+            "Nao planejada": [False],
+            "Categoria": [""],
+            "Observacao": [""],
         }
     )
-    return pd.concat([existing, blank_rows], ignore_index=True)
+    return pd.concat([existing, starter_row], ignore_index=True)
 
 
 def _to_excel_bytes(df: pd.DataFrame) -> bytes:
@@ -542,7 +557,8 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
     )
     if current["sort_label"] not in sort_options:
         current["sort_label"] = "Data"
-    if current["page_size"] not in [10, 25, 50, 100]:
+    page_size_options: list[int | str] = [10, 25, 50, 100, "Todos"]
+    if current["page_size"] not in page_size_options:
         current["page_size"] = 25
     with st.form("reservas_ordem_form"):
         col_sort, col_dir, col_size, col_page, col_apply = st.columns(5)
@@ -561,10 +577,10 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
         with col_size:
             page_size = st.selectbox(
                 "Registros por página",
-                [10, 25, 50, 100],
-                index=[10, 25, 50, 100].index(current["page_size"]),
+                page_size_options,
+                index=page_size_options.index(current["page_size"]),
             )
-        total_pages_form = max(1, (len(df) + page_size - 1) // page_size)
+        total_pages_form = 1 if page_size == "Todos" else max(1, (len(df) + page_size - 1) // page_size)
         with col_page:
             page = st.number_input(
                 "Página",
@@ -572,6 +588,7 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
                 max_value=total_pages_form,
                 value=min(int(current["page"]), total_pages_form),
                 step=1,
+                disabled=page_size == "Todos",
             )
         with col_apply:
             applied = st.form_submit_button("Atualizar tabela", type="primary", width="stretch")
@@ -589,6 +606,8 @@ def _sort_and_paginate(df: pd.DataFrame) -> pd.DataFrame:
     ascending = current["ascending"]
     page_size = current["page_size"]
     sorted_df = df.sort_values(sort_options[sort_label], ascending=ascending, na_position="last")
+    if page_size == "Todos":
+        return sorted_df
     total_pages = max(1, (len(sorted_df) + page_size - 1) // page_size)
     page = min(int(current["page"]), total_pages)
     start = (page - 1) * page_size
@@ -663,34 +682,85 @@ def _new_rows(edited: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
+def _editor_key(original: pd.DataFrame, version: int) -> str:
+    ids = [str(int(value)) for value in original["ID"].dropna().tolist()]
+    dataset_hash = sha1("|".join(ids).encode("utf-8")).hexdigest()[:12]
+    return f"reservas_sheet_{version}_{dataset_hash}"
+
+
+def _show_editor_notice() -> None:
+    notice = st.session_state.pop("reservas_editor_notice", None)
+    if not notice:
+        return
+    level, message = notice
+    if level == "success":
+        st.success(message)
+    elif level == "warning":
+        st.warning(message)
+    else:
+        st.info(message)
+
+
+def _include_pinned_reservas(page_df: pd.DataFrame) -> pd.DataFrame:
+    pinned_ids = {int(value) for value in st.session_state.get("reservas_pinned_ids", [])}
+    if not pinned_ids:
+        return page_df
+
+    visible_ids = set(page_df["id"].astype(int).tolist()) if not page_df.empty else set()
+    missing_records: list[dict[str, Any]] = []
+    existing_pinned_ids: set[int] = set()
+    for reserva_id in sorted(pinned_ids):
+        reserva = get_reserva(reserva_id)
+        if not reserva:
+            continue
+        existing_pinned_ids.add(reserva_id)
+        if reserva_id not in visible_ids:
+            missing_records.append(reserva)
+
+    st.session_state["reservas_pinned_ids"] = sorted(existing_pinned_ids)
+    if not missing_records:
+        return page_df
+    return pd.concat([page_df, _prepare_df(missing_records)], ignore_index=True)
+
+
 def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
     st.markdown("### Planilha de reservas")
-    st.caption("Preencha as linhas em branco para adicionar reservas ou altere diretamente as já cadastradas.")
+    st.caption(
+        "Salvamento automático ativo: ao confirmar uma célula com Enter, Tab ou clicando fora dela, "
+        "a alteração é gravada. Use o + do editor para adicionar quantas linhas precisar."
+    )
+    _show_editor_notice()
+    page_df = _include_pinned_reservas(page_df)
     original = _editable_table(page_df, default_date)
     editor_version = st.session_state.get("reservas_editor_version", 0)
-    with st.form("reservas_editor_form"):
-        edited = st.data_editor(
-            original,
-            key=f"reservas_editor_{editor_version}",
-            hide_index=True,
-            width="stretch",
-            num_rows="fixed",
-            disabled=["ID"],
-            column_config={
-                "Excluir": st.column_config.CheckboxColumn("Excluir", help="Marque para excluir esta reserva."),
-                "ID": st.column_config.NumberColumn("ID", disabled=True),
-                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
-                "Valor": st.column_config.TextColumn("Valor", help="Digite com virgula para centavos. Ex: 249,90"),
-                "Dias": st.column_config.NumberColumn("Dias", min_value=1, step=1, required=True),
-                "Nao planejada": st.column_config.CheckboxColumn("Nao planejada"),
-                "Observacao": st.column_config.TextColumn("Observacao", width="medium"),
-            },
-        )
-        col_save, col_delete = st.columns([2, 1])
-        with col_save:
-            salvar = st.form_submit_button("Salvar planilha", type="primary", width="stretch")
-        with col_delete:
-            excluir = st.form_submit_button("Excluir selecionadas", width="stretch")
+    editor_key = _editor_key(original, editor_version)
+    for state_key in list(st.session_state):
+        if state_key.startswith("reservas_sheet_") and state_key != editor_key:
+            del st.session_state[state_key]
+
+    edited = st.data_editor(
+        original,
+        key=editor_key,
+        hide_index=True,
+        width="stretch",
+        num_rows="add",
+        disabled=["ID"],
+        column_config={
+            "Excluir": st.column_config.CheckboxColumn("Excluir", help="Marque para excluir esta reserva."),
+            "ID": st.column_config.NumberColumn("ID", disabled=True),
+            "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
+            "Valor": st.column_config.TextColumn("Valor", help="Digite com virgula para centavos. Ex: 249,90"),
+            "Dias": st.column_config.NumberColumn("Dias", min_value=1, step=1, required=True),
+            "Nao planejada": st.column_config.CheckboxColumn("Nao planejada"),
+            "Observacao": st.column_config.TextColumn("Observacao", width="medium"),
+        },
+    )
+
+    status_col, delete_col = st.columns([2, 1])
+    with status_col:
+        st.caption("As edições são salvas automaticamente. A exclusão continua sendo confirmada pelo botão ao lado.")
+    with delete_col:
+        excluir = st.button("Excluir selecionadas", width="stretch")
 
     selected_ids = edited.loc[edited["Excluir"].astype(bool) & edited["ID"].notna(), "ID"].astype(int).tolist()
     if excluir:
@@ -701,60 +771,67 @@ def _render_editable_table(page_df: pd.DataFrame, default_date: date) -> None:
             for reserva_id in selected_ids:
                 delete_reserva(reserva_id)
             deleted = len(selected_ids)
-            st.success(f"{deleted} reserva(s) excluida(s).")
+            st.session_state["reservas_editor_notice"] = (
+                "success",
+                f"{deleted} reserva(s) excluída(s).",
+            )
+            st.session_state["reservas_editor_version"] = editor_version + 1
             st.rerun()
         except Exception as exc:
             st.error("Nao foi possivel excluir as reservas selecionadas.")
             st.exception(exc)
         return
 
-    if not salvar:
-        return
-
     changes = _changed_rows(original, edited)
     additions = _new_rows(edited)
     if not changes and not additions:
-        st.info("Nenhuma alteração encontrada.")
         return
 
     errors: list[str] = []
-    updated = 0
-    created = 0
     for reserva_id, data in changes:
         validation_errors = validate_reserva(data, strict=False)
         if validation_errors:
             errors.append(f"ID {reserva_id}: {' '.join(validation_errors)}")
-            continue
-        try:
-            update_reserva(reserva_id, data, allow_duplicate=False)
-            updated += 1
-        except DuplicateReservationError as exc:
-            errors.append(f"ID {reserva_id}: possível duplicidade com a reserva ID {exc.duplicate['id']}.")
-        except Exception as exc:
-            errors.append(f"ID {reserva_id}: nao foi possivel salvar ({exc}).")
 
     for row_number, data in enumerate(additions, start=1):
         validation_errors = validate_reserva(data, strict=False)
         if validation_errors:
             errors.append(f"Nova linha {row_number}: {' '.join(validation_errors)}")
-            continue
-        try:
-            create_reserva(data, None, allow_duplicate=False)
-            created += 1
-        except DuplicateReservationError as exc:
-            errors.append(f"Nova linha {row_number}: possível duplicidade com a reserva ID {exc.duplicate['id']}.")
-        except Exception as exc:
-            errors.append(f"Nova linha {row_number}: nao foi possivel salvar ({exc}).")
 
-    if updated:
-        st.success(f"{updated} reserva(s) atualizada(s).")
-    if created:
-        st.success(f"{created} nova(s) reserva(s) adicionada(s).")
     for error in errors:
         st.warning(error)
-    if (updated or created) and not errors:
+    if errors:
+        st.warning("O salvamento automático está aguardando a correção das linhas indicadas acima.")
+        return
+
+    try:
+        updated, created_ids = save_reserva_changes(changes, additions)
+        created = len(created_ids)
+        pinned_ids = {int(value) for value in st.session_state.get("reservas_pinned_ids", [])}
+        for reserva_id, data in changes:
+            if reserva_id in pinned_ids and not validate_reserva(data, strict=True):
+                pinned_ids.discard(reserva_id)
+        for reserva_id, data in zip(created_ids, additions):
+            if validate_reserva(data, strict=True):
+                pinned_ids.add(reserva_id)
+        st.session_state["reservas_pinned_ids"] = sorted(pinned_ids)
+        saved_parts: list[str] = []
+        if updated:
+            saved_parts.append(f"{updated} reserva(s) atualizada(s)")
+        if created:
+            saved_parts.append(f"{created} nova(s) reserva(s) adicionada(s)")
+        message = " e ".join(saved_parts) + " automaticamente."
+        st.session_state["reservas_editor_notice"] = ("success", message.capitalize())
         st.session_state["reservas_editor_version"] = editor_version + 1
         st.rerun()
+    except DuplicateReservationError as exc:
+        st.warning(
+            "O salvamento automático foi pausado porque há uma possível duplicidade com a "
+            f"reserva ID {exc.duplicate['id']}. Corrija a linha para continuar."
+        )
+    except Exception as exc:
+        st.error("Não foi possível salvar automaticamente. Os valores continuam no editor para tentar novamente.")
+        st.exception(exc)
 
 
 def _reserva_label(df: pd.DataFrame, reserva_id: int) -> str:
